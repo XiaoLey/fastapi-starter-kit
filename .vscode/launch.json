@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug FastAPI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": [],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "internalConsoleOptions": "neverOpen"
+        },
+        {
+            "name": "Debug Scheduler",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scheduler.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "internalConsoleOptions": "neverOpen"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Debug Both",
+            "configurations": [
+                "Debug FastAPI",
+                "Debug Scheduler"
+            ]
+        }
+    ]
+}

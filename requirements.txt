@@ -1,0 +1,24 @@
+APScheduler~=3.10.4
+fastapi[all]~=0.115.12
+fastapi-limiter~=0.1.6
+jose~=1.0.0
+loguru~=0.7.3
+starlette~=0.46.2
+uvicorn~=0.34.2
+bcrypt~=4.3.0
+pydantic
+pydantic-settings
+python-jose[cryptography]
+redis~=5.3.0
+python-dateutil~=2.9.0.post0
+python-magic~=0.4.27
+pillow~=11.2.1
+SQLAlchemy
+SQLAlchemy-Utils
+SQLModel
+alembic
+alembic-dddl
+asyncpg~=0.30.0
+httpx[http2]~=0.28.1
+httpx-socks[asyncio,trio]~=0.10.0
+tenacity~=9.1.2     # httpx 重试扩展库
