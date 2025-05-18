@@ -44,7 +44,7 @@ fastapi-starter
 ├── config                  # 配置目录，存储项目配置信息
 ├── database                # 数据库相关目录，包含SQL脚本等
 │   └── postgresql          # PostgreSQL数据库相关脚本目录
-├── start_fastapi.sh        # 启动FastAPI应用的脚本（生产模式时使用）
+├── start_web.sh            # 启动Web应用的脚本（生产模式时使用）
 ├── start_scheduler.sh      # 启动调度器的脚本（生产模式时使用）
 ├── migrations              # 数据库迁移目录，存储Alembic迁移脚本
 └── storage                 # 存储目录，用于保存日志或临时文件
