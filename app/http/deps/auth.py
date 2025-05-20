@@ -23,7 +23,7 @@ class HvOAuth2PasswordBearer(OAuth2PasswordBearer):
         if isinstance(request_or_ws, Request):
             token = await super().__call__(request_or_ws)
         elif isinstance(request_or_ws, WebSocket):
-            token = request_or_ws.query_params.get("token")
+            token = request_or_ws.query_params.get("access_token")
             if not token:
                 raise AuthenticationError()
         else:
