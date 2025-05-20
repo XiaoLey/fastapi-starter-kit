@@ -20,8 +20,8 @@ from app.exceptions.exception import (
 )
 from app.models.user import UserModel
 from app.providers.database import redis_client
-from app.schemas.auth import TokenSc
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
+from app.schemas.token import TokenSc
 from app.schemas.user import UserCreateRecvSc
 from app.services.auth import hashing, jwt_helper, random_code_verifier
 from app.services.auth.validators import (
@@ -80,10 +80,7 @@ async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreat
     if new_user.password:
         password = hashing.get_password_hash(new_user.password)
 
-    # 移除多余字段
-    del new_user.email_verify_code
-    del new_user.cellphone_verify_code
-
+    # 创建用户
     user = await UserModel(**new_user.model_dump(exclude=['password'] + [field for field, value in new_user if value is None]),
                            password=password).create(session)
 
