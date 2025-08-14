@@ -1,5 +1,6 @@
-# 启用预览模式
-preview = true
+preview = true      # 启用预览模式
+line-length = 120   # 设置一行最大长度
+indent-width = 4    # tab每次缩进所用的空格数
 
 # 选择要检查的规则
 select = [
@@ -46,3 +47,10 @@ ignore = [
     "B904",  # 文件操作的改进建议
     "B905"   # 敏感函数调用
 ]
+
+[format]
+indent-style = "space"              # 是否使用空格或制表符进行缩进，制表符-tab、空格-space
+docstring-code-format = true        # 是否在注释中格式化代码片段
+skip-magic-trailing-comma = true    # 使用现有的尾随逗号作为短行应保持独立的指示
+line-ending = "auto"                # 行尾使用的字符
+quote-style = "single"              # 字符使用单引号
