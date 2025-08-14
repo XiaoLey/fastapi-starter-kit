@@ -1,3 +1,39 @@
+import platform
+
+
+def setup_encoding_patch():
+    """设置UTF-8编码修补，仅在Windows上生效"""
+    if platform.system() == 'Windows':
+        import builtins
+
+        # 保存原始的open函数
+        _original_open = builtins.open
+
+        def patched_open(
+            file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None
+        ):
+            """
+            修补过的open函数，默认对SQL文件使用UTF-8编码
+            仅在Windows系统上生效，解决alembic_dddl读取SQL文件的编码问题
+            """
+            # 如果没有指定编码且是文本模式
+            if encoding is None and ('b' not in mode):
+                # 对SQL文件使用UTF-8
+                if isinstance(file, str):
+                    if file.endswith('.sql'):
+                        encoding = 'utf-8'
+
+            return _original_open(file, mode, buffering, encoding, errors, newline, closefd, opener)
+
+        # 替换内置的open函数
+        builtins.open = patched_open
+        print('Applied UTF-8 encoding patch for Windows')
+
+
+# 应用编码修补
+setup_encoding_patch()
+
+
 import asyncio
 from logging.config import fileConfig
 
@@ -8,10 +44,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.models.base_model import BaseModel, TableModel, ViewModel
-from app.support.modules_helper import (
-    get_classes_inheriting_from_base,
-    import_all_models,
-)
+from app.support.modules_helper import get_classes_inheriting_from_base, import_all_models
 from config.database import settings as db_settings
 
 import_all_models('app/models')
@@ -21,7 +54,7 @@ import_all_models('app/models')
 config = context.config
 
 # 设置sqlalchemy.url
-config.set_main_option("sqlalchemy.url", db_settings.SQLALCHEMY_DATABASE_URL)
+config.set_main_option('sqlalchemy.url', db_settings.SQLALCHEMY_DATABASE_URL)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -81,12 +114,12 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = config.get_main_option('sqlalchemy.url')
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        dialect_opts={'paramstyle': 'named'},
         compare_server_default=True,  # Added to detect server_default changes
     )
 
@@ -112,9 +145,7 @@ async def run_async_migrations() -> None:
     """
 
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        config.get_section(config.config_ini_section, {}), prefix='sqlalchemy.', poolclass=pool.NullPool
     )
 
     async with connectable.connect() as connection:
