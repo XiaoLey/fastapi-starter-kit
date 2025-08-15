@@ -1,6 +1,6 @@
 import os
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -20,11 +20,12 @@ class Settings(BaseSettings):
 
     QPS: int = 10  # 全局QPS（其他局部的无法高于此值）
 
-    class Config:
-        env_prefix = 'APP_'
-        env_file = '.env'
-        env_file_encoding = 'utf-8'
-        extra = 'ignore'  # 忽略额外的输入
+    model_config = SettingsConfigDict(
+        env_prefix='APP_',
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',  # 忽略额外的输入
+    )
 
 
 settings = Settings()
