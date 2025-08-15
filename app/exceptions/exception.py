@@ -95,11 +95,6 @@ class UsernameAlreadyExistsError(HTTPException):
     """用户名已存在"""
 
 
-@exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.EMAIL_ALREADY_EXISTS_ERROR)
-class EmailAlreadyExistsError(HTTPException):
-    """邮箱已存在"""
-
-
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.CELLPHONE_ALREADY_EXISTS_ERROR)
 class CellphoneAlreadyExistsError(HTTPException):
     """手机号已存在"""
@@ -120,16 +115,6 @@ class InvalidCellphoneError(HTTPException):
     """非法手机号"""
 
 
-@exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.INVALID_EMAIL_ERROR)
-class InvalidEmailError(HTTPException):
-    """非法邮箱"""
-
-
-@exception_decorator(HTTP_400_BAD_REQUEST, ErrorCode.INVALID_EMAIL_CODE_ERROR)
-class InvalidEmailCodeError(HTTPException):
-    """无效邮箱验证码"""
-
-
 @exception_decorator(HTTP_400_BAD_REQUEST, ErrorCode.INVALID_CELLPHONE_CODE_ERROR)
 class InvalidCellphoneCodeError(HTTPException):
     """无效手机验证码"""
@@ -148,11 +133,6 @@ class InvalidFileNameError(HTTPException):
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.USERNAME_EMPTY_ERROR)
 class UsernameEmptyError(HTTPException):
     """用户名为空"""
-
-
-@exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.EMAIL_EMPTY_ERROR)
-class EmailEmptyError(HTTPException):
-    """邮箱为空"""
 
 
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.CELLPHONE_EMPTY_ERROR)

@@ -24,11 +24,7 @@ from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
 from app.schemas.token import TokenSc
 from app.schemas.user import UserCreateRecvSc
 from app.services.auth import hashing, jwt_helper, random_code_verifier
-from app.services.auth.validators import (
-    verify_cellphone_availability,
-    verify_email_availability,
-    verify_username_availability,
-)
+from app.services.auth.validators import verify_cellphone_availability, verify_username_availability
 from config.auth import settings
 from config.redis_key import settings as redis_key_settings
 
@@ -69,9 +65,6 @@ async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreat
     """
     # 验证用户名
     await verify_username_availability(session, new_user.username)
-    # 验证邮箱
-    if new_user.email:
-        await verify_email_availability(session, new_user.email)
     # 验证手机号
     await verify_cellphone_availability(session, new_user.cellphone)
 
@@ -98,11 +91,7 @@ class PasswordGrant:
     async def respond(self, is_admin: bool = False):
         user = await UserModel.get_one(
             self.session,
-            sm.or_(
-                UserModel.username == self.request_data.username,
-                UserModel.email == self.request_data.username,
-                UserModel.cellphone == self.request_data.username,
-            ),
+            sm.or_(UserModel.username == self.request_data.username, UserModel.cellphone == self.request_data.username),
         )
         if not user:
             raise UserNotFoundError()

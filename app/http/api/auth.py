@@ -8,13 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exception import (
-    AuthenticationError,
-    InvalidCellphoneCodeError,
-    InvalidCellphoneError,
-    InvalidEmailCodeError,
-    InvalidEmailError,
-)
+from app.exceptions.exception import AuthenticationError, InvalidCellphoneCodeError, InvalidCellphoneError
 from app.http import deps
 from app.schemas.common import BoolSc
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
@@ -22,9 +16,8 @@ from app.schemas.token import TokenSc, TokenStatusSc
 from app.schemas.user import UserCreateRecvSc
 from app.services.auth import random_code_verifier
 from app.services.auth.grant import CellphoneGrant, PasswordGrant, cancel_grant, create_user, validate_token
-from app.services.email import email_sender
 from app.services.sms import sms_sender
-from app.support.helper import is_chinese_cellphone, is_valid_email
+from app.support.helper import is_chinese_cellphone
 
 router = APIRouter(prefix='/auth', tags=['验证'])
 
@@ -97,26 +90,8 @@ async def signup(
     if not await random_code_verifier.verify(user_create.cellphone, user_create.cellphone_verify_code):
         raise InvalidCellphoneCodeError()
 
-    if user_create.email and not await random_code_verifier.verify(user_create.email, user_create.email_verify_code):
-        raise InvalidEmailCodeError()
-
     await create_user(session, client_ip, user_create)
     await session.commit()
-    return BoolSc(success=True)
-
-
-@router.post(
-    '/verification_code/email',
-    response_model=BoolSc,
-    name='发送邮箱验证码',
-    description='发送邮箱验证码，验证码在10分钟内有效',
-)
-async def send_email_verification_code(email: str = Body(..., embed=True, description='邮箱地址')):
-    if not is_valid_email(email, True):
-        raise InvalidEmailError()
-
-    code = await random_code_verifier.make(email, 60 * 10)
-    await email_sender.send_verification_code(email, code)
     return BoolSc(success=True)
 
 

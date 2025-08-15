@@ -7,7 +7,6 @@ from typing import Union
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import magic
-from email_validator import EmailNotValidError, validate_email
 
 
 def get_bytes_mime_type(content: Union[str, bytes]) -> tuple[str, str]:
@@ -62,18 +61,6 @@ def is_chinese_cellphone(cellphone) -> bool:
     """
     match = re.fullmatch(r'^1[3456789]\d{9}$', cellphone)
     return bool(match)
-
-
-def is_valid_email(email: str, check_deliverability: bool = False) -> bool:
-    """
-    判断是否为有效的邮箱
-    """
-    try:
-        emailinfo = validate_email(email, check_deliverability=check_deliverability)
-        email = emailinfo.email
-    except EmailNotValidError:
-        return False
-    return True
 
 
 # Base64 正则表达式

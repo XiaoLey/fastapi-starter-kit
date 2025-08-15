@@ -6,17 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions.exception import (
     CellphoneAlreadyExistsError,
     CellphoneEmptyError,
-    EmailAlreadyExistsError,
-    EmailEmptyError,
     InvalidCellphoneError,
-    InvalidEmailError,
     InvalidUsernameError,
     InvalidUsernameLengthError,
     UsernameAlreadyExistsError,
     UsernameEmptyError,
 )
 from app.models.user import UserModel
-from app.support.helper import is_chinese_cellphone, is_valid_email
+from app.support.helper import is_chinese_cellphone
 from config.verify import settings
 
 
@@ -36,9 +33,7 @@ async def verify_username_availability(session: AsyncSession, username: str, exc
     if not re.match(settings.USERNAME_PATTERN, username):
         raise InvalidUsernameError()
 
-    query = sm.select(sm.func.count()).where(
-        (UserModel.username == username) | (UserModel.email == username) | (UserModel.cellphone == username)
-    )
+    query = sm.select(sm.func.count()).where((UserModel.username == username) | (UserModel.cellphone == username))
     if exclude_id:
         query = query.where(UserModel.id != exclude_id)
     result = await session.execute(query)
@@ -65,24 +60,3 @@ async def verify_cellphone_availability(session: AsyncSession, cellphone: str, e
     result = await session.execute(query)
     if result.scalar() > 0:
         raise CellphoneAlreadyExistsError()
-
-
-async def verify_email_availability(session: AsyncSession, email: str, exclude_id: int = None):
-    """
-    验证邮箱是否可用
-
-    :param email: 邮箱
-    :param exclude_id: 排除的用户 ID
-    """
-    if not email:
-        raise EmailEmptyError()
-
-    if not is_valid_email(email):
-        raise InvalidEmailError()
-
-    query = sm.select(sm.func.count()).where(UserModel.email == email)
-    if exclude_id:
-        query = query.where(UserModel.id != exclude_id)
-    result = await session.execute(query)
-    if result.scalar() > 0:
-        raise EmailAlreadyExistsError()

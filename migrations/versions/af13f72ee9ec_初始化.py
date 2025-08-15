@@ -40,14 +40,12 @@ def upgrade() -> None:
     sa.Column('username', sqlmodel.sql.sqltypes.AutoString(length=255), nullable=False),
     sa.Column('password', sqlmodel.sql.sqltypes.AutoString(length=255), nullable=True),
     sa.Column('cellphone', sqlmodel.sql.sqltypes.AutoString(length=45), nullable=False),
-    sa.Column('email', sqlmodel.sql.sqltypes.AutoString(length=255), nullable=True),
     sa.Column('state', postgresql.ENUM('disabled', 'enabled', name='user_state_type'), server_default='enabled', nullable=False),
     sa.Column('nickname', sa.String(length=255, collation='zh-x-icu'), nullable=False),
     sa.Column('gender', postgresql.ENUM('male', 'female', 'unknown', name='gender_type'), nullable=False),
     sa.Column('avatar', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('cellphone'),
-    sa.UniqueConstraint('email'),
     sa.UniqueConstraint('id'),
     sa.UniqueConstraint('username')
     )

@@ -26,7 +26,9 @@ async def verify(key, verification_code, delete_when_passed=True) -> bool:
     key = _get_redis_key(key)
     code = await redis_client.get(key)
     passed = code and code == verification_code
+
     # 若通过验证立即删除
     if passed and delete_when_passed:
         await redis_client.delete(key)
+
     return passed
