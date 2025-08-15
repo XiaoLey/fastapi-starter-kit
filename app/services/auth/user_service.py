@@ -13,9 +13,7 @@ from app.services.auth.validators import verify_cellphone_availability, verify_u
 
 
 async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreateRecvSc) -> UserModel:
-    """
-    创建用户
-    """
+    """创建用户"""
     # 验证用户名
     await verify_username_availability(session, new_user.username)
     # 验证手机号

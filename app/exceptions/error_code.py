@@ -1,4 +1,6 @@
+#
 # 错误码
+#
 
 
 class ErrorCode:

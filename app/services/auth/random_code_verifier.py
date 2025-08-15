@@ -15,7 +15,16 @@ def _get_redis_key(key):
 
 
 async def make(key, expired=180, length=6) -> str:
-    """生成随机码，存储到服务端，返回随机码"""
+    """生成随机码，存储到服务端，返回随机码
+
+    Args:
+        key (str): 验证码的键名
+        expired (int): 验证码过期时间，单位为秒，默认180秒
+        length (int): 验证码长度，默认6位数字
+
+    Returns:
+        str: 生成的随机验证码
+    """
     code = numeric_random(length)
     await redis_client.setex(_get_redis_key(key), expired, code)
     return code

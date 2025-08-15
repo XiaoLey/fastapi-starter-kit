@@ -1,3 +1,9 @@
+#
+# HTTPX 辅助函数模块
+#
+# 提供了基于 HTTPX 的高级下载功能，支持多线程、断点续传和代理。
+#
+
 import asyncio
 import logging
 
@@ -109,16 +115,17 @@ class DownloadManager:
 async def download_file_iterator(
     url: str, chunk_size: int = 1024, num_workers: int = 4, max_semaphore: int = 16, proxy_url: str | None = None
 ):
-    """
-    下载文件（迭代下载）
+    """下载文件（迭代下载）
 
-    :param url: 文件下载地址
-    :param chunk_size: 每次从aiter_bytes读取的块大小
-    :param num_workers: 并行下载任务数
-    :param max_semaphore: 最大并发数量
-    :param proxy_url: 代理地址，可选
+    Args:
+        url: 文件下载地址
+        chunk_size: 每次从aiter_bytes读取的块大小
+        num_workers: 并行下载任务数
+        max_semaphore: 最大并发数量
+        proxy_url: 代理地址，可选
 
-    :return: 文件块迭代器
+    Returns:
+        文件块迭代器
     """
     httpx_mounts = {
         'all://': AsyncProxyTransport.from_url(
@@ -150,13 +157,14 @@ async def download_file_iterator(
 
 
 async def get_file_content_type(url: str, proxy_url: str | None = None) -> str | None:
-    """
-    获取文件MIME类型，如果未获取到则返回 None
+    """获取文件MIME类型，如果未获取到则返回 None
 
-    :param url: 文件地址
-    :param proxy_url: 代理地址，可选
+    Args:
+        url: 文件地址
+        proxy_url: 代理地址，可选
 
-    :return: Content-Type 或 None
+    Returns:
+        Content-Type 或 None
     """
     httpx_mounts = {
         'all://': AsyncProxyTransport.from_url(

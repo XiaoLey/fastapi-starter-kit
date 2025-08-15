@@ -1,3 +1,9 @@
+#
+# 路径安全检查辅助函数
+#
+# 提供用于检查文件路径安全性的函数，防止路径遍历等安全问题。
+#
+
 import logging
 import re
 import urllib.parse
@@ -7,12 +13,14 @@ from app.exceptions.exception import InvalidFileNameError
 
 
 def check_file_name_safty(file_name: str, base_dir: str) -> str:
-    """
-    检查文件名是否合法并返回安全的文件路径
+    """检查文件名是否合法并返回安全的文件路径
 
-    :param file_name: 文件名
-    :param base_dir: 基础目录
-    :return: 安全的文件路径
+    Args:
+        file_name: 文件名
+        base_dir: 基础目录
+
+    Returns:
+        安全的文件路径
     """
 
     # 最大文件名长度和路径深度
@@ -58,12 +66,14 @@ def check_file_name_safty(file_name: str, base_dir: str) -> str:
 
 
 def check_oss_file_name_safety(file_name: str, base_dir: str | None = None) -> str:
-    """
-    检查OSS文件名是否合法并返回安全的文件路径
+    """检查OSS文件名是否合法并返回安全的文件路径
 
-    :param file_name: 文件名
-    :param base_dir: 基础目录
-    :return: 安全的文件路径
+    Args:
+        file_name: 文件名
+        base_dir: 基础目录
+
+    Returns:
+        安全的文件路径
     """
 
     # URL解码，直到字符串不再变化，防止多重编码攻击

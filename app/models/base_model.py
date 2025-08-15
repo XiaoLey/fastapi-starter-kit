@@ -13,9 +13,7 @@ from config.database import settings as db_settings
 
 
 def load_sql(filename: str) -> str:
-    """
-    加载sql脚本
-    """
+    """加载sql脚本"""
     file_path = Path(db_settings.POSTGRESQL_SCRIPTS_DIR) / filename
     return file_path.read_text(encoding='utf-8')
 
@@ -35,9 +33,7 @@ class BaseModel(SQLModel):
 
     @classmethod
     def get_init_sql_alembic_ddls(cls):
-        """
-        获取表创建前要执行的sql语句
-        """
+        """获取表创建前要执行的sql语句"""
         util_schema_list = [
             # 添加 hstore 扩展，支持键值对存储
             alembic_DDL(

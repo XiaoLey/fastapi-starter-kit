@@ -1,6 +1,6 @@
-"""
-配置参考loguru
-"""
+#
+# 日志配置（参考loguru）
+#
 
 import socket
 

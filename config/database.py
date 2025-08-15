@@ -4,8 +4,6 @@ from config.config import settings as app_settings
 
 
 class Settings(BaseSettings):
-    """mysql db"""
-
     POSTGRES_HOST: str = 'localhost'
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = 'fastapi'
@@ -26,8 +24,6 @@ class Settings(BaseSettings):
 
 
 class RedisSettings(BaseSettings):
-    """redis"""
-
     REDIS_HOST: str = 'localhost'
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0

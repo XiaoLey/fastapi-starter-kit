@@ -15,7 +15,7 @@ def create_asyncio_scheduler() -> AsyncIOScheduler:
 
 
 def register_asyncio_jobs(scheduler: AsyncIOScheduler):
-    """Register asyncio jobs"""
+    """注册异步任务"""
     first_run_time = datetime.datetime.now() + datetime.timedelta(seconds=10)  # 延迟 10 秒启动
 
     # 测试

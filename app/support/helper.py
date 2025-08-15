@@ -1,3 +1,9 @@
+#
+# 通用辅助函数模块
+#
+# 提供了一系列通用的辅助函数，用于字符串处理、哈希计算、数据验证、URL 操作等。
+#
+
 import hashlib
 import mimetypes
 import random
@@ -10,11 +16,13 @@ import magic
 
 
 def get_bytes_mime_type(content: Union[str, bytes]) -> tuple[str, str]:
-    """
-    预测bytes的MIME类型和文件后缀
+    """预测bytes的MIME类型和文件后缀
 
-    :param content: bytes
-    :return: MIME类型, 文件后缀
+    Args:
+        content: bytes
+
+    Returns:
+        MIME类型, 文件后缀
     """
     if isinstance(content, str):
         content = content.encode('utf-8')
@@ -44,11 +52,13 @@ def numeric_random(length: int) -> str:
 
 
 def sha1_hash(content: Union[str, bytes]) -> str:
-    """
-    计算sha1
+    """计算sha1
 
-    :param content: 要计算的内容
-    :return: sha1
+    Args:
+        content: 要计算的内容
+
+    Returns:
+        sha1
     """
     sha1 = hashlib.sha1()
     sha1.update(type(content) == str and content.encode('utf-8') or content)
@@ -56,9 +66,7 @@ def sha1_hash(content: Union[str, bytes]) -> str:
 
 
 def is_chinese_cellphone(cellphone) -> bool:
-    """
-    判断号码是否为中国的手机号
-    """
+    """判断号码是否为中国的手机号"""
     match = re.fullmatch(r'^1[3456789]\d{9}$', cellphone)
     return bool(match)
 
@@ -77,12 +85,14 @@ _BASE64_URLSAFE_PATTERN = re.compile(
 
 
 def is_likely_base64(s: str, urlsafe: bool = False) -> bool:
-    """
-    快速判断字符串是否可能是 Base64 编码。
+    """快速判断字符串是否可能是 Base64 编码
 
-    :param s: 要检查的字符串。
-    :param urlsafe: 是否使用 URL 安全的 Base64 编码（默认为 False）。
-    :return: 如果字符串可能是 Base64 编码，返回 True；否则返回 False。
+    Args:
+        s: 要检查的字符串
+        urlsafe: 是否使用 URL 安全的 Base64 编码（默认为 False）
+
+    Returns:
+        如果字符串可能是 Base64 编码，返回 True；否则返回 False
     """
     # 1. 长度检查：Base64 字符串的长度必须是 4 的倍数
     if len(s) % 4 != 0:
@@ -111,11 +121,13 @@ def is_url(url: str) -> bool:
 
 
 def encode_url(url: str) -> str:
-    """
-    对 URL 的 path、query 和 fragment 部分进行编码
+    """对 URL 的 path、query 和 fragment 部分进行编码
 
-    :param url: 原始 URL
-    :return: 编码后的 URL
+    Args:
+        url: 原始 URL
+
+    Returns:
+        编码后的 URL
     """
     # 解析 URL
     parsed_url = urlparse(url)

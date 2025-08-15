@@ -8,7 +8,7 @@ import bcrypt
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt"""
+    """使用 bcrypt 哈希密码"""
     pwd_bytes = password.encode('utf-8')
     salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(password=pwd_bytes, salt=salt)
@@ -17,7 +17,7 @@ def get_password_hash(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Check if the provided password matches the stored password (hashed)"""
+    """检查提供的密码是否与存储的密码（哈希后）匹配"""
     password_byte_enc = plain_password.encode('utf-8')
     hashed_password = hashed_password.encode('utf-8')
     try:

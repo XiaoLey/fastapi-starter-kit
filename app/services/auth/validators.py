@@ -24,11 +24,18 @@ from config.verify import settings
 
 
 async def verify_username_availability(session: AsyncSession, username: str, exclude_id: int = None):
-    """
-    验证用户名是否可用
+    """验证用户名是否可用
 
-    :param username: 用户名
-    :param exclude_id: 排除的用户 ID
+    Args:
+        session: 数据库会话
+        username: 用户名
+        exclude_id: 要排除的用户 ID
+
+    Raises:
+        UsernameEmptyError: 如果用户名为空
+        InvalidUsernameLengthError: 如果用户名长度无效
+        InvalidUsernameError: 如果用户名包含无效字符
+        UsernameAlreadyExistsError: 如果用户名或手机号已存在
     """
     if not username:
         raise UsernameEmptyError()
@@ -48,11 +55,17 @@ async def verify_username_availability(session: AsyncSession, username: str, exc
 
 
 async def verify_cellphone_availability(session: AsyncSession, cellphone: str, exclude_id: int = None):
-    """
-    验证手机号是否可用
+    """验证手机号是否可用
 
-    :param cellphone: 手机号
-    :param exclude_id: 排除的用户 ID
+    Args:
+        session: 数据库会话
+        cellphone: 手机号
+        exclude_id: 要排除的用户 ID
+
+    Raises:
+        CellphoneEmptyError: 如果手机号为空
+        InvalidCellphoneError: 如果手机号格式无效
+        CellphoneAlreadyExistsError: 如果手机号已存在
     """
     if not cellphone:
         raise CellphoneEmptyError()
