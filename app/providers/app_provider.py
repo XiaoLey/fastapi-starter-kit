@@ -5,10 +5,6 @@ from config.config import settings
 
 
 def register(app: FastAPI):
-    app.debug = settings.DEBUG
-    app.title = settings.NAME
-    app.version = settings.VERSION
-
     add_global_middleware(app)
 
 

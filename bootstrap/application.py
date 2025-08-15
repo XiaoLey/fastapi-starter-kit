@@ -5,10 +5,25 @@ from fastapi import Depends, FastAPI
 import app.http.deps as deps
 from app.providers import app_provider, handle_exception, logging_provider, middleware_provider, route_provider
 from app.providers.app_lifespan import lifespan
+from config.config import settings
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(lifespan=lifespan, dependencies=[Depends(deps.verify_ip_banned)])
+    base_kwargs = {
+        'debug': settings.DEBUG,
+        'title': settings.NAME,
+        'version': settings.VERSION,
+        'lifespan': lifespan,
+        'dependencies': [Depends(deps.verify_ip_banned)],
+    }
+
+    if settings.DEBUG:
+        app = FastAPI(**base_kwargs)
+    else:
+        # 生产环境不启用文档
+        app = FastAPI(
+            **base_kwargs, docs_url=None, redoc_url=None, openapi_url=None, swagger_ui_oauth2_redirect_url=None
+        )
 
     register(app, logging_provider)
     register(app, app_provider)
