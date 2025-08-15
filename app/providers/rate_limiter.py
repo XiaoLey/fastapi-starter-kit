@@ -9,7 +9,7 @@ from app.exceptions.exception import TooManyRequestsError
 
 async def default_identifier(request: Union[Request, WebSocket]):
     ip = request.client.host
-    return ip + ":" + request.scope["path"]
+    return ip + ':' + request.scope['path']
 
 
 async def http_default_callback(request: Request, response: Response, pexpire: int):
@@ -21,7 +21,7 @@ async def http_default_callback(request: Request, response: Response, pexpire: i
     :return:
     """
     expire = ceil(pexpire / 1000)
-    raise TooManyRequestsError(headers={"Retry-After": str(expire)})
+    raise TooManyRequestsError(headers={'Retry-After': str(expire)})
 
 
 async def ws_default_callback(ws: WebSocket, pexpire: int):
@@ -33,10 +33,10 @@ async def ws_default_callback(ws: WebSocket, pexpire: int):
     """
     # 记录日志，有id频繁访问
     ip = ws.scope['client'][0]
-    logging.warning(f"{ip} is frequently requesting {ws.scope['path']}")
+    logging.warning(f'{ip} is frequently requesting {ws.scope["path"]}')
 
     expire = ceil(pexpire / 1000)
-    raise TooManyRequestsError(headers={"Retry-After": str(expire)})
+    raise TooManyRequestsError(headers={'Retry-After': str(expire)})
 
 
 async def http_app_callback(request: Request | WebSocket, response: Response, pexpire: int):
@@ -45,7 +45,7 @@ async def http_app_callback(request: Request | WebSocket, response: Response, pe
     """
     # 记录日志，有id频繁访问
     ip = request.scope['client'][0]
-    logging.warning(f"{ip} is frequently requesting {request.scope['path']}")
+    logging.warning(f'{ip} is frequently requesting {request.scope["path"]}')
 
     # 忽略本地回环
     if ip == '127.0.0.1':

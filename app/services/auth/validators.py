@@ -37,9 +37,8 @@ async def verify_username_availability(session: AsyncSession, username: str, exc
         raise InvalidUsernameError()
 
     query = sm.select(sm.func.count()).where(
-        (UserModel.username == username) |
-        (UserModel.email == username) |
-        (UserModel.cellphone == username))
+        (UserModel.username == username) | (UserModel.email == username) | (UserModel.cellphone == username)
+    )
     if exclude_id:
         query = query.where(UserModel.id != exclude_id)
     result = await session.execute(query)
@@ -47,7 +46,7 @@ async def verify_username_availability(session: AsyncSession, username: str, exc
         raise UsernameAlreadyExistsError()
 
 
-async def verify_cellphone_availability(session: AsyncSession, cellphone: str,  exclude_id: int = None):
+async def verify_cellphone_availability(session: AsyncSession, cellphone: str, exclude_id: int = None):
     """
     验证手机号是否可用
 

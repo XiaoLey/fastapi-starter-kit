@@ -18,6 +18,6 @@ def exceptions_to_response(*args: HTTPException):
         # 判断是否继承HTTPException
         if issubclass(exception, HTTPException):
             e = exception()
-            result_dict[e.status_code] = {"content": {"application/json": {"example": {"detail": e.detail}}}}
+            result_dict[e.status_code] = {'content': {'application/json': {'example': {'detail': e.detail}}}}
 
     return result_dict

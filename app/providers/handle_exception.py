@@ -9,9 +9,7 @@ from fastapi.responses import JSONResponse
 from jose import jwt
 from pydantic import ValidationError as PydanticValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.status import (
-    HTTP_401_UNAUTHORIZED,
-)
+from starlette.status import HTTP_401_UNAUTHORIZED
 
 from app.exceptions.error_code import ErrorCode
 from app.exceptions.exception import (
@@ -33,7 +31,7 @@ def _encode_headers(headers: dict) -> dict:
 
 
 def _handle_exception(request: Request, exc: StarletteHTTPException, code: str, add_info: any = None) -> JSONResponse:
-    headers: dict = getattr(exc, "headers", None)
+    headers: dict = getattr(exc, 'headers', None)
 
     if headers:
         if 'Access-Control-Expose-Headers' in headers:
@@ -50,10 +48,7 @@ def _handle_exception(request: Request, exc: StarletteHTTPException, code: str, 
         'add_info': add_info,
     }
     # logging.warning({'status_code': exc.status_code, 'detail': detail, 'headers': headers})
-    return JSONResponse(
-        {"detail": detail},
-        status_code=exc.status_code, headers=headers
-    )
+    return JSONResponse({'detail': detail}, status_code=exc.status_code, headers=headers)
 
 
 def register(app: FastAPI):
@@ -76,7 +71,7 @@ def register(app: FastAPI):
 
     @app.exception_handler(StarletteHTTPException)
     async def custom_http_exception_handler(request: Request, exc):
-        if exc.status_code == HTTP_401_UNAUTHORIZED and exc.detail == "Not authenticated":
+        if exc.status_code == HTTP_401_UNAUTHORIZED and exc.detail == 'Not authenticated':
             exc.detail = ErrorCode.AUTHENTICATION_ERROR
         return _handle_exception(request, exc, code=exc.detail)
 
@@ -93,10 +88,7 @@ def register(app: FastAPI):
         details = exc.errors()
         validation_details = []
         for error in details:
-            validation_detail = {
-                'loc': error['loc'],
-                'type': error['type']
-            }
+            validation_detail = {'loc': error['loc'], 'type': error['type']}
             validation_details.append(validation_detail)
         add_info = {'errors': validation_details}
         logging.warning(str(exc))

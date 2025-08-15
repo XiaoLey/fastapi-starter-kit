@@ -18,8 +18,8 @@ def add_global_middleware(app: FastAPI):
     """
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*" if settings.DEBUG else f"https://{settings.SERVER_DOMAIN}"],
+        allow_origins=['*' if settings.DEBUG else f'https://{settings.SERVER_DOMAIN}'],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=['*'],
+        allow_headers=['*'],
     )

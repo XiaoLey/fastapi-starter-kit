@@ -8,30 +8,34 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from app.providers.httpx import httpx_client_params
 from config.http import settings as http_settings
 
-_head_headers = {
-    'User-Agent': http_settings.USER_AGENT,
-    'Range': 'bytes=0-',
-}
+_head_headers = {'User-Agent': http_settings.USER_AGENT, 'Range': 'bytes=0-'}
 
-_download_headers = {
-    'User-Agent': http_settings.USER_AGENT,
-}
+_download_headers = {'User-Agent': http_settings.USER_AGENT}
 
 
 class DownloadManager:
-    def __init__(self, url: str, file_size: int, chunk_size: int, num_workers: int, supports_resume: bool,
-                 headers=None, max_semaphore: int = 16, client: httpx.AsyncClient = None):
+    def __init__(
+        self,
+        url: str,
+        file_size: int,
+        chunk_size: int,
+        num_workers: int,
+        supports_resume: bool,
+        headers=None,
+        max_semaphore: int = 16,
+        client: httpx.AsyncClient = None,
+    ):
         self.url = url
         self.file_size = file_size
-        self.chunk_size = chunk_size                        # 控制每次从aiter_bytes读取的大小
+        self.chunk_size = chunk_size  # 控制每次从aiter_bytes读取的大小
         self.num_workers = num_workers
         self.supports_resume = supports_resume
-        self.cache = {}                                     # 用于存储各个块的缓存
-        self.current_yield_pos = 0                          # 当前可以 yield 的数据块位置
-        self.lock = asyncio.Lock()                          # 用于确保并发访问缓存的安全
-        self.semaphore = asyncio.Semaphore(max_semaphore)   # 控制最大并发数量
-        self.headers = headers                              # 请求头
-        self.client = client                                # httpx 异步客户端
+        self.cache = {}  # 用于存储各个块的缓存
+        self.current_yield_pos = 0  # 当前可以 yield 的数据块位置
+        self.lock = asyncio.Lock()  # 用于确保并发访问缓存的安全
+        self.semaphore = asyncio.Semaphore(max_semaphore)  # 控制最大并发数量
+        self.headers = headers  # 请求头
+        self.client = client  # httpx 异步客户端
 
     def calculate_ranges(self):
         """根据文件大小和 num_workers 计算 ranges"""
@@ -49,7 +53,7 @@ class DownloadManager:
         """下载指定范围的文件块，返回块和其 index"""
         headers = {'Range': f'bytes={start}-{end}'} if self.supports_resume else {}
         headers.update(self.headers)
-        async with self.client.stream("GET", self.url, headers=headers) as response:
+        async with self.client.stream('GET', self.url, headers=headers) as response:
             response.raise_for_status()
             chunk = b''.join([chunk async for chunk in response.aiter_bytes(self.chunk_size)])  # 这里使用 chunk_size
             return index, chunk  # 返回块的索引和内容
@@ -57,7 +61,7 @@ class DownloadManager:
     @retry(wait=wait_fixed(3), stop=stop_after_attempt(3))
     async def download_full_file(self):
         """下载整个文件，不支持断点续传"""
-        async with self.client.stream("GET", self.url, headers=self.headers) as response:
+        async with self.client.stream('GET', self.url, headers=self.headers) as response:
             # 检查响应状态码
             response.raise_for_status()
             async for chunk in response.aiter_bytes(self.chunk_size):
@@ -80,7 +84,9 @@ class DownloadManager:
         else:
             if self.supports_resume:
                 # 不支持断点续传的情况，直接一次性下载整个文件
-                logging.info(f'Download file without resume, because the server does not support resume. URL: {self.url}')
+                logging.info(
+                    f'Download file without resume, because the server does not support resume. URL: {self.url}'
+                )
             async for chunk in self.download_full_file():
                 yield chunk
 
@@ -100,8 +106,9 @@ class DownloadManager:
                 self.current_yield_pos += 1
 
 
-async def download_file_iterator(url: str, chunk_size: int = 1024, num_workers: int = 4,
-                                 max_semaphore: int = 16, proxy_url: str | None = None):
+async def download_file_iterator(
+    url: str, chunk_size: int = 1024, num_workers: int = 4, max_semaphore: int = 16, proxy_url: str | None = None
+):
     """
     下载文件（迭代下载）
 
@@ -115,10 +122,10 @@ async def download_file_iterator(url: str, chunk_size: int = 1024, num_workers: 
     """
     httpx_mounts = {
         'all://': AsyncProxyTransport.from_url(
-            proxy_url.replace("socks5h://", "socks5://"),
-            rdns="socks5h://" in proxy_url,
-            http2=True
-        ) if proxy_url else httpx.AsyncHTTPTransport(retries=2, http2=True)
+            proxy_url.replace('socks5h://', 'socks5://'), rdns='socks5h://' in proxy_url, http2=True
+        )
+        if proxy_url
+        else httpx.AsyncHTTPTransport(retries=2, http2=True)
     }
 
     # 创建一个 httpx 异步客户端，使用代理（如果提供）
@@ -129,11 +136,13 @@ async def download_file_iterator(url: str, chunk_size: int = 1024, num_workers: 
             file_size = int(response.headers['Content-Length'])
             supports_resume = response.headers.get('Accept-Ranges') == 'bytes'
         except KeyError:
-            logging.warning("Content-Length not found, falling back to full file download.")
+            logging.warning('Content-Length not found, falling back to full file download.')
             file_size = None
             supports_resume = False
 
-        manager = DownloadManager(url, file_size, chunk_size, num_workers, supports_resume, _download_headers, max_semaphore, client)
+        manager = DownloadManager(
+            url, file_size, chunk_size, num_workers, supports_resume, _download_headers, max_semaphore, client
+        )
 
         # 迭代下载
         async for chunk in manager.download_file_iterator():
@@ -151,10 +160,10 @@ async def get_file_content_type(url: str, proxy_url: str | None = None) -> str |
     """
     httpx_mounts = {
         'all://': AsyncProxyTransport.from_url(
-            proxy_url.replace("socks5h://", "socks5://"),
-            rdns="socks5h://" in proxy_url,
-            http2=True
-        ) if proxy_url else httpx.AsyncHTTPTransport(retries=2, http2=True)
+            proxy_url.replace('socks5h://', 'socks5://'), rdns='socks5h://' in proxy_url, http2=True
+        )
+        if proxy_url
+        else httpx.AsyncHTTPTransport(retries=2, http2=True)
     }
 
     async with httpx.AsyncClient(**httpx_client_params, mounts=httpx_mounts) as client:

@@ -14,7 +14,7 @@ def alter_enum_type(
     new_enum_values: list[str],
     value_mapping: dict[str, str],
     default_value: Union[str, None],
-    nullable: bool = False
+    nullable: bool = False,
 ) -> None:
     """
     通用函数，用于在 PostgreSQL 中更改 ENUM 类型，并更新已有数据的字段值。
@@ -62,13 +62,11 @@ def alter_enum_type(
     """
     invalid_values = op.get_bind().execute(sa.text(invalid_values_query)).fetchall()
     if invalid_values:
-        raise ValueError(f"发现无效的旧 ENUM 值: {invalid_values}")
+        raise ValueError(f'发现无效的旧 ENUM 值: {invalid_values}')
 
     # 更新数据
     if value_mapping:
-        when_statements = ' '.join([
-            f"WHEN '{old}' THEN '{new}'" for old, new in value_mapping.items()
-        ])
+        when_statements = ' '.join([f"WHEN '{old}' THEN '{new}'" for old, new in value_mapping.items()])
         # 使用 CASE {column_name} WHEN ... THEN ... 的形式
         op.execute(f"""
             UPDATE {table_name}
@@ -96,8 +94,8 @@ def alter_enum_type(
         """)
 
     # Step 7: 删除旧的 ENUM 类型并重命名新的 ENUM 类型
-    op.execute(f"DROP TYPE {old_enum_name}")
-    op.execute(f"ALTER TYPE {new_enum_name} RENAME TO {old_enum_name}")
+    op.execute(f'DROP TYPE {old_enum_name}')
+    op.execute(f'ALTER TYPE {new_enum_name} RENAME TO {old_enum_name}')
 
 
 def alter_column_type(
@@ -107,7 +105,7 @@ def alter_column_type(
     new_type: sa.types.TypeEngine,
     value_conversion: Union[str, None] = None,
     default_value: Union[str, None] = None,
-    nullable: bool = False
+    nullable: bool = False,
 ) -> None:
     """
     通用函数，用于更改普通类型字段的类型，并更新已有数据的字段值。

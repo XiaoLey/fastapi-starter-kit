@@ -81,8 +81,10 @@ async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreat
         password = hashing.get_password_hash(new_user.password)
 
     # 创建用户
-    user = await UserModel(**new_user.model_dump(exclude=['password'] + [field for field, value in new_user if value is None]),
-                           password=password).create(session)
+    user = await UserModel(
+        **new_user.model_dump(exclude=['password'] + [field for field, value in new_user if value is None]),
+        password=password,
+    ).create(session)
 
     return user
 
@@ -94,10 +96,14 @@ class PasswordGrant:
         self.request_data = request_data
 
     async def respond(self, is_admin: bool = False):
-        user = await UserModel.get_one(self.session,
-                                       sm.or_(UserModel.username == self.request_data.username,
-                                              UserModel.email == self.request_data.username,
-                                              UserModel.cellphone == self.request_data.username))
+        user = await UserModel.get_one(
+            self.session,
+            sm.or_(
+                UserModel.username == self.request_data.username,
+                UserModel.email == self.request_data.username,
+                UserModel.cellphone == self.request_data.username,
+            ),
+        )
         if not user:
             raise UserNotFoundError()
 
@@ -142,7 +148,7 @@ class CellphoneGrant:
                     nickname=username,
                     gender='unknown',
                     cellphone=cellphone,
-                    cellphone_verify_code=''
+                    cellphone_verify_code='',
                 )
                 user = await create_user(self.session, self.client_ip, new_user_info)
             except UsernameAlreadyExistsError as e:

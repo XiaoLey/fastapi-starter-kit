@@ -8,16 +8,14 @@ from apscheduler.triggers.cron import CronTrigger
 
 
 def create_asyncio_scheduler() -> AsyncIOScheduler:
-    logging.info("AsyncIOScheduler initializing")
+    logging.info('AsyncIOScheduler initializing')
     scheduler: AsyncIOScheduler = AsyncIOScheduler()
     register_asyncio_jobs(scheduler)
     return scheduler
 
 
 def register_asyncio_jobs(scheduler: AsyncIOScheduler):
-    """
-     Register asyncio jobs
-    """
+    """Register asyncio jobs"""
     first_run_time = datetime.datetime.now() + datetime.timedelta(seconds=10)  # 延迟 10 秒启动
 
     # 测试

@@ -5,22 +5,18 @@ from config.redis_key import settings as redis_key_settings
 
 
 def _get_redis_key(key):
-    return f"{redis_key_settings.VERIFY_RANDOM_CODE}:{key}"
+    return f'{redis_key_settings.VERIFY_RANDOM_CODE}:{key}'
 
 
 async def make(key, expired=180, length=6) -> str:
-    """
-    生成随机码，存储到服务端，返回随机码
-    """
+    """生成随机码，存储到服务端，返回随机码"""
     code = numeric_random(length)
     await redis_client.setex(_get_redis_key(key), expired, code)
     return code
 
 
 async def verify(key, verification_code, delete_when_passed=True) -> bool:
-    """
-    校验验证码
-    """
+    """校验验证码"""
     # 开发环境，可以任意账号使用超级验证码
     super_code = '417938'
     if settings.DEBUG and verification_code == super_code:

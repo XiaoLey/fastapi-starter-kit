@@ -5,6 +5,7 @@ from config.config import settings as app_settings
 
 class Settings(BaseSettings):
     """mysql db"""
+
     POSTGRES_HOST: str = 'localhost'
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = 'fastapi'
@@ -18,9 +19,9 @@ class Settings(BaseSettings):
         return f'postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}'
 
     class Config:
-        env_file = ".env"
+        env_file = '.env'
         env_file_encoding = 'utf-8'
-        extra = "ignore"  # 忽略额外的输入
+        extra = 'ignore'  # 忽略额外的输入
 
 
 class RedisSettings(BaseSettings):
@@ -32,9 +33,9 @@ class RedisSettings(BaseSettings):
     REDIS_PASSWORD: str = 'fastapi123456'
 
     class Config:
-        env_file = ".env"
+        env_file = '.env'
         env_file_encoding = 'utf-8'
-        extra = "ignore"  # 忽略额外的输入
+        extra = 'ignore'  # 忽略额外的输入
 
 
 settings = Settings()

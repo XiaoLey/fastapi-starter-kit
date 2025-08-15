@@ -23,7 +23,7 @@ class HvOAuth2PasswordBearer(OAuth2PasswordBearer):
         if isinstance(request_or_ws, Request):
             token = await super().__call__(request_or_ws)
         elif isinstance(request_or_ws, WebSocket):
-            token = request_or_ws.query_params.get("access_token")
+            token = request_or_ws.query_params.get('access_token')
             if not token:
                 raise AuthenticationError()
         else:
@@ -32,13 +32,10 @@ class HvOAuth2PasswordBearer(OAuth2PasswordBearer):
         return token
 
 
-oauth2_token = HvOAuth2PasswordBearer(
-    tokenUrl=f"{config_settings.API_PREFIX[1:]}/auth/token/form",
-)
+oauth2_token = HvOAuth2PasswordBearer(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/token/form')
 
 
-async def get_auth_user(token: str = Depends(oauth2_token),
-                        session: AsyncSession = Depends(get_db)) -> UserModel:
+async def get_auth_user(token: str = Depends(oauth2_token), session: AsyncSession = Depends(get_db)) -> UserModel:
     payload = await validate_token(token)
     user_id = UUID(payload.get('sub'))
     user = (await session.execute(sm.select(UserModel).where(UserModel.id == user_id))).scalar()
@@ -50,7 +47,9 @@ async def get_auth_user(token: str = Depends(oauth2_token),
     return user
 
 
-async def get_auth_user_dirty(request_or_ws: HTTPConnection, session: AsyncSession = Depends(get_db)) -> UserModel | None:
+async def get_auth_user_dirty(
+    request_or_ws: HTTPConnection, session: AsyncSession = Depends(get_db)
+) -> UserModel | None:
     try:
         token: str = await oauth2_token(request_or_ws)
     except HTTPException as e:

@@ -23,10 +23,10 @@ def load_sql(filename: str) -> str:
 class BaseModel(SQLModel):
     model_config = SQLModelConfig(
         # 参考：https://docs.pydantic.dev/latest/api/config/
-        extra="ignore",             # 忽略未知字段
-        validate_assignment=True,   # 允许在对象更改时进行数据校验
-        from_attributes=True,       # 允许使用类属性填充（而不是只能用字典填充，旧名字叫做 orm_mode）
-        populate_by_name=True,      # 允许通过字段名来填充（而不是只能通过别名来填充）
+        extra='ignore',  # 忽略未知字段
+        validate_assignment=True,  # 允许在对象更改时进行数据校验
+        from_attributes=True,  # 允许使用类属性填充（而不是只能用字典填充，旧名字叫做 orm_mode）
+        populate_by_name=True,  # 允许通过字段名来填充（而不是只能通过别名来填充）
     )
 
     @classmethod
@@ -84,7 +84,6 @@ class BaseModel(SQLModel):
                 sql='CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;',
                 down_sql='DROP EXTENSION IF EXISTS fuzzystrmatch;',
             ),
-
             # 触发器函数：更新表的 updated_at 字段
             alembic_DDL(
                 name='tgr_func-update_updated_at_column',
@@ -104,40 +103,39 @@ class BaseModel(SQLModel):
 
 
 class ViewModel(BaseModel):
-    __mapper_args__ = {"eager_defaults": True}
+    __mapper_args__ = {'eager_defaults': True}
 
 
 class TableModel(BaseModel):
-    __mapper_args__ = {"eager_defaults": True}
+    __mapper_args__ = {'eager_defaults': True}
 
     id: uuid.UUID = Field(
-        default_factory=uuid.uuid4, primary_key=True, unique=True,
-        sa_column_kwargs={'server_default': sm.func.uuid_generate_v4()}
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        unique=True,
+        sa_column_kwargs={'server_default': sm.func.uuid_generate_v4()},
     )
     created_at: datetime.datetime | None = Field(
         default=None,
         nullable=False,
         sa_type=TIMESTAMP(timezone=True),
-        sa_column_kwargs={"server_default": sm.func.now()}
+        sa_column_kwargs={'server_default': sm.func.now()},
     )
     updated_at: datetime.datetime | None = Field(
         default=None,
         nullable=False,
         sa_type=TIMESTAMP(timezone=True),
-        sa_column_kwargs={
-            "server_default": sm.func.now(),
-            "server_onupdate": sm.func.now()
-        }
+        sa_column_kwargs={'server_default': sm.func.now(), 'server_onupdate': sm.func.now()},
     )
     deleted_at: datetime.datetime | None = Field(default=None, sa_type=TIMESTAMP(timezone=True))
 
     @classmethod
     async def get(cls, session: AsyncSession, pk: int):
-        return (await session.get(cls, pk))
+        return await session.get(cls, pk)
 
     @classmethod
     async def get_one(cls, session: AsyncSession, filter):
-        return (await session.scalar(sm.select(cls).where(filter)))
+        return await session.scalar(sm.select(cls).where(filter))
 
     @classmethod
     async def soft_delete_by_id(cls, session: AsyncSession, pk: int):
@@ -149,13 +147,13 @@ class TableModel(BaseModel):
         util_schema_list = super().get_ext_alembic_ddls() + [
             alembic_DDL(
                 name=f'tgr-update_updated_at_column_{cls.__tablename__}',
-                sql=f'''
+                sql=f"""
                 {down_sql}
                 CREATE TRIGGER tgr_update_updated_at_column
                 BEFORE UPDATE ON {cls.__tablename__}
                 FOR EACH ROW
                 EXECUTE FUNCTION update_updated_at_column();
-                '''.strip(),
+                """.strip(),
                 down_sql=down_sql,
             )
         ]

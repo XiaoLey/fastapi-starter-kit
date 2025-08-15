@@ -1,29 +1,23 @@
 import redis.asyncio as redis
 import sqlmodel as sm
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.providers.sqlalchemy  # noqa: F401
 from config.config import settings as config_settings
 from config.database import redis_settings
 from config.database import settings as db_settings
 
-engine = create_async_engine(db_settings.SQLALCHEMY_DATABASE_URL,
-                             pool_size=4,
-                             # echo_pool='debug' if config_settings.DEBUG else False,
-                             echo='debug' if config_settings.DEBUG else False)
+engine = create_async_engine(
+    db_settings.SQLALCHEMY_DATABASE_URL,
+    pool_size=4,
+    # echo_pool='debug' if config_settings.DEBUG else False,
+    echo='debug' if config_settings.DEBUG else False,
+)
 
 
 # 异步数据库会话
 async_session_factory = async_sessionmaker(
-    autocommit=False,
-    autoflush=True,
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False
+    autocommit=False, autoflush=True, bind=engine, class_=AsyncSession, expire_on_commit=False
 )
 
 
@@ -37,6 +31,6 @@ redis_pool = redis.ConnectionPool(
     port=redis_settings.REDIS_PORT,
     db=redis_settings.REDIS_DB,
     password=redis_settings.REDIS_PASSWORD,
-    decode_responses=True
+    decode_responses=True,
 )
 redis_client = redis.Redis(connection_pool=redis_pool)

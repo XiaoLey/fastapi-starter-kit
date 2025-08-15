@@ -12,9 +12,7 @@ from config.auth import settings
 
 
 def create_access_token(
-        subject: Union[str, Any],
-        expires_delta: timedelta = None,
-        additional_claims: dict[str, Any] = None
+    subject: Union[str, Any], expires_delta: timedelta = None, additional_claims: dict[str, Any] = None
 ) -> str:
     """
     创建一个 JWT 访问令牌。
@@ -32,13 +30,13 @@ def create_access_token(
 
     # 设置公共声明
     to_encode = {
-        "iss": settings.JWT_ISSUER,         # 发行者
-        "aud": settings.JWT_AUDIENCE,       # 接收方
-        "sub": str(subject),                # 主题
-        "exp": expire,                      # 过期时间
-        "nbf": datetime.now(timezone.utc),  # 在此时间之前无效
-        "iat": datetime.now(timezone.utc),  # 签发时间
-        "jti": str(uuid.uuid4())            # JWT 的唯一标识符
+        'iss': settings.JWT_ISSUER,  # 发行者
+        'aud': settings.JWT_AUDIENCE,  # 接收方
+        'sub': str(subject),  # 主题
+        'exp': expire,  # 过期时间
+        'nbf': datetime.now(timezone.utc),  # 在此时间之前无效
+        'iat': datetime.now(timezone.utc),  # 签发时间
+        'jti': str(uuid.uuid4()),  # JWT 的唯一标识符
     }
 
     # 添加额外的私有声明
@@ -56,9 +54,11 @@ def get_payload_by_token(encoded_jwt):
     :param encoded_jwt: 编码的 JWT 令牌。
     :return: 解码后的负载数据。
     """
-    payload = jwt.decode(encoded_jwt,
-                         key=settings.JWT_SECRET_KEY,
-                         algorithms=settings.JWT_ALGORITHM,
-                         issuer=settings.JWT_ISSUER,
-                         audience=settings.JWT_AUDIENCE)
+    payload = jwt.decode(
+        encoded_jwt,
+        key=settings.JWT_SECRET_KEY,
+        algorithms=settings.JWT_ALGORITHM,
+        issuer=settings.JWT_ISSUER,
+        audience=settings.JWT_AUDIENCE,
+    )
     return payload

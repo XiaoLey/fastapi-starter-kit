@@ -140,7 +140,13 @@ def encode_url(url: str) -> str:
     encoded_fragment = quote(parsed_url.fragment)
 
     # 构建新的 URL
-    new_url = urlunparse((parsed_url.scheme, parsed_url.netloc, encoded_path,
-                          parsed_url.params, encoded_query, encoded_fragment))
+    new_url = urlunparse((
+        parsed_url.scheme,
+        parsed_url.netloc,
+        encoded_path,
+        parsed_url.params,
+        encoded_query,
+        encoded_fragment,
+    ))
 
     return new_url

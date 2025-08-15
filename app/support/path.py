@@ -120,7 +120,7 @@ def check_oss_file_name_safety(file_name: str, base_dir: str | None = None) -> s
     if base_dir:
         # 去除 base_dir 尾部的斜杠，防止重复
         base_dir = base_dir.rstrip('/')
-        full_path = f"{base_dir}/{safe_path}"
+        full_path = f'{base_dir}/{safe_path}'
     else:
         full_path = safe_path
 

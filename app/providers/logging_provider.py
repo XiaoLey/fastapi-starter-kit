@@ -22,10 +22,7 @@ def register(app=None):
         logging.getLogger(name).propagate = True
 
     # configure loguru
-    logger.configure(handlers=[
-        {"sink": sys.stdout},
-        {"sink": path, "rotation": "00:00", "retention": retention},
-    ])
+    logger.configure(handlers=[{'sink': sys.stdout}, {'sink': path, 'rotation': '00:00', 'retention': retention}])
 
 
 class InterceptHandler(logging.Handler):

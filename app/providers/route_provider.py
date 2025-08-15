@@ -11,9 +11,7 @@ def boot(app: FastAPI):
     router_ws_dict = get_attributes_from_all_modules('app/http/api', 'router_ws')
 
     app_http = APIRouter(
-        dependencies=[
-            Depends(RateLimiter(times=settings.QPS, seconds=1, callback=rate_limiter.http_app_callback))
-        ]
+        dependencies=[Depends(RateLimiter(times=settings.QPS, seconds=1, callback=rate_limiter.http_app_callback))]
     )
     app_ws = APIRouter(
         dependencies=[

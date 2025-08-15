@@ -1,4 +1,3 @@
-
 import sqlmodel as sm
 from sqlalchemy import event
 from sqlalchemy.orm import Session, with_loader_criteria
@@ -6,11 +5,11 @@ from sqlalchemy.orm.session import ORMExecuteState
 from sqlalchemy.orm.util import AliasedClass
 
 
-@event.listens_for(Session, "do_orm_execute")
+@event.listens_for(Session, 'do_orm_execute')
 def add_soft_delete_filter(execute_state: ORMExecuteState):
     """
     添加软删除过滤器（判断 deleted_at 字段）
-    注意：relationship 字段不会被过滤，需要自行处理 
+    注意：relationship 字段不会被过滤，需要自行处理
 
     :param execute_state: 执行状态
     """
