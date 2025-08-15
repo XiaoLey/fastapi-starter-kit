@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import UserModel
 from app.schemas.user import UserCreateRecvSc
-from app.services.auth import hashing
+from app.services.auth import password_hashing
 from app.services.auth.validators import verify_cellphone_availability, verify_username_availability
 
 
@@ -22,7 +22,7 @@ async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreat
     # 设置密码
     password = None
     if new_user.password:
-        password = hashing.get_password_hash(new_user.password)
+        password = password_hashing.get_password_hash(new_user.password)
 
     # 创建用户
     user = await UserModel(

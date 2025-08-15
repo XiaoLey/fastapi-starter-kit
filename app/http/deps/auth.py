@@ -32,12 +32,12 @@ class OAuth2PasswordBearerWithWebSocket(OAuth2PasswordBearer):
         return token
 
 
-oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/token/form')
+oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/login')
 
 
 async def get_auth_user(token: str = Depends(oauth2_token), session: AsyncSession = Depends(get_db)) -> UserModel:
     payload = await validate_token(token)
-    user_id = UUID(payload.get('sub'))
+    user_id = UUID(payload.sub)
     user = (await session.execute(sm.select(UserModel).where(UserModel.id == user_id))).scalar()
 
     if not user:
@@ -60,6 +60,6 @@ async def get_auth_user_dirty(
     except Exception as e:
         return None
 
-    user_uuid = UUID(payload.get('sub'))
-    user = (await session.execute(sm.select(UserModel).where(UserModel.id == user_uuid))).scalar()
+    user_id = UUID(payload.sub)
+    user = (await session.execute(sm.select(UserModel).where(UserModel.id == user_id))).scalar()
     return user

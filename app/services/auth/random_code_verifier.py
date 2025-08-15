@@ -10,10 +10,6 @@ from config.config import settings
 from config.redis_key import settings as redis_key_settings
 
 
-def _get_redis_key(key):
-    return f'{redis_key_settings.VERIFY_RANDOM_CODE}:{key}'
-
-
 async def make(key, expired=180, length=6) -> str:
     """生成随机码，存储到服务端，返回随机码
 
@@ -47,3 +43,8 @@ async def verify(key, verification_code, delete_when_passed=True) -> bool:
         await redis_client.delete(key)
 
     return passed
+
+
+def _get_redis_key(key):
+    """获取 Redis 存储的随机码键名"""
+    return f'{redis_key_settings.VERIFY_RANDOM_CODE}:{key}'

@@ -10,19 +10,22 @@ from typing import Any, Union
 
 from jose import jwt
 
+from app.schemas.jwt import JWTSc
 from config.auth import settings
 
 
 def create_access_token(
     subject: Union[str, Any], expires_delta: timedelta = None, additional_claims: dict[str, Any] = None
 ) -> str:
-    """
-    创建一个 JWT 访问令牌。
+    """创建一个 JWT 访问令牌
 
-    :param subject: 主题或用户的标识符。
-    :param expires_delta: 令牌的有效期 (exp)
-    :param additional_claims: 额外的私有声明。
-    :return: 编码的 JWT 令牌。
+    Args:
+        subject (Union[str, Any]): 主题或用户的标识符
+        expires_delta (timedelta, optional): 令牌的有效期 (exp)，默认 None
+        additional_claims (dict[str, Any], optional): 额外的私有声明，默认 None
+
+    Returns:
+        str: 编码的 JWT 令牌
     """
     # 设置过期时间
     if expires_delta:
@@ -49,12 +52,14 @@ def create_access_token(
     return encoded_jwt
 
 
-def get_payload_by_token(encoded_jwt):
-    """
-    解码并返回 JWT 负载。
+def get_payload_by_token(encoded_jwt: str) -> JWTSc:
+    """解码并返回 JWT 负载
 
-    :param encoded_jwt: 编码的 JWT 令牌。
-    :return: 解码后的负载数据。
+    Args:
+        encoded_jwt (str): 编码的 JWT 令牌
+
+    Returns:
+        JWTSc: 解码后的 JWT 数据
     """
     payload = jwt.decode(
         encoded_jwt,
@@ -63,4 +68,6 @@ def get_payload_by_token(encoded_jwt):
         issuer=settings.JWT_ISSUER,
         audience=settings.JWT_AUDIENCE,
     )
-    return payload
+
+    validated_payload = JWTSc.model_validate(payload)
+    return validated_payload

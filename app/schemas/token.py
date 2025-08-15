@@ -1,4 +1,5 @@
-from typing import Optional
+import datetime
+from uuid import UUID
 
 from pydantic import Field
 
@@ -8,7 +9,7 @@ from app.schemas.base import BaseSc
 class TokenSc(BaseSc):
     """令牌"""
 
-    token_type: str = Field(default='bearer', description='令牌类型')
+    token_type: str = Field('bearer', description='令牌类型')
     expires_in: int = Field(description='过期时间（秒）')
     access_token: str = Field(description='令牌')
 

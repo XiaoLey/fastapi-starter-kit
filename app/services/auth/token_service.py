@@ -6,9 +6,10 @@
 
 from datetime import datetime, timedelta, timezone
 
-from app.exceptions.exception import AuthenticationError
+from app.exceptions.exception import InvalidTokenError
 from app.models.user import UserModel
 from app.providers.database import redis_client
+from app.schemas.jwt import JWTSc
 from app.schemas.token import TokenSc
 from app.services.auth import jwt_helper
 from config.auth import settings
@@ -24,17 +25,13 @@ def create_token_response_from_user(user: UserModel) -> TokenSc:
     return TokenSc(token_type='bearer', expires_in=expires_in, access_token=token)
 
 
-async def validate_token(token: str) -> dict:
-    """
-    验证 token 并返回解码后的数据
-    :return: 对 token 进行 jwt 解码后的数据（按需获取）
-    """
+async def validate_token(token: str) -> JWTSc:
+    """验证 token 并返回解码后的数据"""
     value = await redis_client.get(f'{redis_key_settings.VERIFY_GRANT_TOKEN}:{token}')
     if value and value == 'invalid':
-        raise AuthenticationError()
+        raise InvalidTokenError()
 
     payload = jwt_helper.get_payload_by_token(token)
-
     return payload
 
 

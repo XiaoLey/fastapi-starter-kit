@@ -72,7 +72,7 @@ class InvalidCSRFError(HTTPException):
 
 @exception_decorator(HTTP_401_UNAUTHORIZED, ErrorCode.INVALID_TOKEN_ERROR)
 class InvalidTokenError(HTTPException):
-    """token 错误"""
+    """token 无效"""
 
 
 @exception_decorator(HTTP_401_UNAUTHORIZED, ErrorCode.TOKEN_EXPIRED_ERROR)

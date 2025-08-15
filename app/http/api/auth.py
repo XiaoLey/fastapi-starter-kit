@@ -1,6 +1,7 @@
 #
 # 鉴权接口
 #
+
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends
@@ -20,26 +21,14 @@ from app.services.auth.user_service import create_user
 from app.services.sms import sms_sender
 from app.support.helper import is_chinese_cellphone
 
-router = APIRouter(prefix='/auth', tags=['验证'])
+router = APIRouter(prefix='/auth', tags=['认证与授权'])
 
 
-@router.post('/login', response_model=TokenSc, name='用户名+密码登录（JSON模式）')
-async def login(
-    request_data: OAuth2PasswordSc,
-    client_ip: str = Depends(deps.get_request_ip),
-    session: AsyncSession = Depends(deps.get_db),
-):
-    grant = PasswordGrant(session, client_ip, request_data)
-    token_data = await grant.respond()
-    await session.commit()
-    return token_data
-
-
-@router.post('/login/form', response_model=TokenSc, name='用户名+密码登录（表单模式）')
+@router.post('/login', response_model=TokenSc, name='用户名+密码登录')
 async def form_login(
     request_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    client_ip: str = Depends(deps.get_request_ip),
-    session: AsyncSession = Depends(deps.get_db),
+    client_ip: Annotated[str, Depends(deps.get_request_ip)],
+    session: Annotated[AsyncSession, Depends(deps.get_db)],
 ):
     grant = PasswordGrant(session, client_ip, request_data)
     token_data = await grant.respond()
@@ -50,8 +39,8 @@ async def form_login(
 @router.post('/login/cellphone', response_model=TokenSc, name='手机号+验证码登录')
 async def cellphone_login(
     request_data: OAuth2CellphoneSc,
-    client_ip: str = Depends(deps.get_request_ip),
-    session: AsyncSession = Depends(deps.get_db),
+    client_ip: Annotated[str, Depends(deps.get_request_ip)],
+    session: Annotated[AsyncSession, Depends(deps.get_db)],
 ):
     grant = CellphoneGrant(session, client_ip, request_data)
     token_data = await grant.respond()
@@ -62,8 +51,8 @@ async def cellphone_login(
 @router.post('/login/admin', response_model=TokenSc, name='管理员登录')
 async def admin_login(
     request_data: OAuth2PasswordSc,
-    client_ip: str = Depends(deps.get_request_ip),
-    session: AsyncSession = Depends(deps.get_db),
+    client_ip: Annotated[str, Depends(deps.get_request_ip)],
+    session: Annotated[AsyncSession, Depends(deps.get_db)],
 ):
     grant = PasswordGrant(session, client_ip, request_data)
     token_data = await grant.respond(is_admin=True)
@@ -72,7 +61,7 @@ async def admin_login(
 
 
 @router.post('/logout', response_model=BoolSc, name='退出登录')
-async def logout(token: str = Depends(deps.oauth2_token)):
+async def logout(token: Annotated[str, Depends(deps.oauth2_token)]):
     await cancel_token(token=token)
     return BoolSc(success=True)
 
@@ -80,8 +69,8 @@ async def logout(token: str = Depends(deps.oauth2_token)):
 @router.post('/signup', response_model=BoolSc, name='注册新用户')
 async def signup(
     user_create: UserCreateRecvSc,
-    client_ip: str = Depends(deps.get_request_ip),
-    session: AsyncSession = Depends(deps.get_db),
+    client_ip: Annotated[str, Depends(deps.get_request_ip)],
+    session: Annotated[AsyncSession, Depends(deps.get_db)],
 ):
     if not await random_code_verifier.verify(user_create.cellphone, user_create.cellphone_verify_code):
         raise InvalidCellphoneCodeError()
@@ -102,8 +91,6 @@ async def send_cellphone_verification_code(cellphone: str = Body(..., embed=True
 
 
 @router.post('/token/status', response_model=TokenStatusSc, name='查看token状态')
-async def token_status(token: str = Depends(deps.oauth2_token)):
+async def token_status(token: Annotated[str, Depends(deps.oauth2_token)]):
     payload = await validate_token(token)
-    return TokenStatusSc(
-        user_id=payload.get('sub'), expires_in=payload.get('exp'), issued_at=payload.get('iat'), is_valid=True
-    )
+    return TokenStatusSc(user_id=payload.sub, expires_at=payload.exp, issued_at=payload.iat, is_valid=True)

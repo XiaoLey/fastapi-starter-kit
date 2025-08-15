@@ -8,6 +8,7 @@ import random
 import string
 
 import sqlmodel as sm
+from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions.exception import (
@@ -21,7 +22,7 @@ from app.exceptions.exception import (
 from app.models.user import UserModel
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
 from app.schemas.user import UserCreateRecvSc
-from app.services.auth import hashing, random_code_verifier
+from app.services.auth import password_hashing, random_code_verifier
 from app.services.auth.token_service import create_token_response_from_user
 from app.services.auth.user_service import create_user
 
@@ -29,6 +30,7 @@ from app.services.auth.user_service import create_user
 class PasswordGrant:
     """用户名密码授权"""
 
+    @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
     def __init__(self, session: AsyncSession, client_ip: str, request_data: OAuth2PasswordSc):
         self.session = session
         self.client_ip = client_ip
@@ -43,7 +45,7 @@ class PasswordGrant:
             raise UserNotFoundError()
 
         # 用户密码校验
-        if not (user.password and hashing.verify_password(self.request_data.password, user.password)):
+        if not (user.password and password_hashing.verify_password(self.request_data.password, user.password)):
             raise InvalidPasswordError()
 
         # 用户状态校验
