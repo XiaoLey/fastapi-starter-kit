@@ -5,17 +5,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exception import AuthenticationError, InvalidCellphoneCodeError, InvalidCellphoneError
+from app.exceptions.exception import InvalidCellphoneCodeError, InvalidCellphoneError
 from app.http import deps
 from app.schemas.common import BoolSc
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
 from app.schemas.token import TokenSc, TokenStatusSc
 from app.schemas.user import UserCreateRecvSc
 from app.services.auth import random_code_verifier
-from app.services.auth.grant import CellphoneGrant, PasswordGrant, cancel_grant, create_user, validate_token
+from app.services.auth.grant import CellphoneGrant, PasswordGrant
+from app.services.auth.token_service import cancel_token, validate_token
+from app.services.auth.user_service import create_user
 from app.services.sms import sms_sender
 from app.support.helper import is_chinese_cellphone
 
@@ -71,13 +72,8 @@ async def admin_login(
 
 
 @router.post('/logout', response_model=BoolSc, name='退出登录')
-async def logout(
-    token: str = Depends(deps.oauth2_token),
-    client_ip: str = Depends(deps.get_request_ip),
-    session: AsyncSession = Depends(deps.get_db),
-):
-    await cancel_grant(session=session, client_ip=client_ip, token=token)
-    await session.commit()
+async def logout(token: str = Depends(deps.oauth2_token)):
+    await cancel_token(token=token)
     return BoolSc(success=True)
 
 
@@ -107,10 +103,7 @@ async def send_cellphone_verification_code(cellphone: str = Body(..., embed=True
 
 @router.post('/token/status', response_model=TokenStatusSc, name='查看token状态')
 async def token_status(token: str = Depends(deps.oauth2_token)):
-    try:
-        await validate_token(token)
-        return TokenStatusSc(success=True)
-    except AuthenticationError as e:
-        return TokenStatusSc(success=False, message='Token expired')
-    except jwt.ExpiredSignatureError as e:
-        return TokenStatusSc(success=False, message='Token expired')
+    payload = await validate_token(token)
+    return TokenStatusSc(
+        user_id=payload.get('sub'), expires_in=payload.get('exp'), issued_at=payload.get('iat'), is_valid=True
+    )

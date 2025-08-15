@@ -14,11 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions.exception import AuthenticationError, InvalidUserError
 from app.http.deps.database import get_db
 from app.models.user import UserModel
-from app.services.auth.grant import validate_token
+from app.services.auth.token_service import validate_token
 from config.config import settings as config_settings
 
 
-class HvOAuth2PasswordBearer(OAuth2PasswordBearer):
+class OAuth2PasswordBearerWithWebSocket(OAuth2PasswordBearer):
     async def __call__(self, request_or_ws: HTTPConnection) -> Optional[str]:
         if isinstance(request_or_ws, Request):
             token = await super().__call__(request_or_ws)
@@ -32,7 +32,7 @@ class HvOAuth2PasswordBearer(OAuth2PasswordBearer):
         return token
 
 
-oauth2_token = HvOAuth2PasswordBearer(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/token/form')
+oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/token/form')
 
 
 async def get_auth_user(token: str = Depends(oauth2_token), session: AsyncSession = Depends(get_db)) -> UserModel:

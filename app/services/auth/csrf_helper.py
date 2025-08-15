@@ -1,5 +1,7 @@
 #
-# CSRF 辅助工具
+# CSRF 防护辅助工具
+#
+# 提供 CSRF 令牌的生成和验证功能，防止跨站请求伪造攻击。
 #
 
 from itsdangerous import BadSignature, URLSafeTimedSerializer
