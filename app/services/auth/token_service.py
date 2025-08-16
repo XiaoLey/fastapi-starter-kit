@@ -38,6 +38,5 @@ async def validate_token(token: str) -> JWTSc:
 async def cancel_token(token: str):
     """吊销一个 token"""
     payload = await validate_token(token)
-    expire_time = payload.get('exp')
-    expire_in = int(expire_time - datetime.now(timezone.utc).timestamp())
+    expire_in = int(payload.exp.timestamp() - datetime.now(timezone.utc).timestamp())
     await redis_client.setex(name=f'{redis_key_settings.VERIFY_GRANT_TOKEN}:{token}', time=expire_in, value='invalid')
