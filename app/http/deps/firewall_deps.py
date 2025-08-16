@@ -1,6 +1,6 @@
 from fastapi.requests import HTTPConnection
 
-from app.exceptions.exceptions import IPBannedError
+from app.exceptions import IPBannedError
 from app.providers.database_provider import redis_client
 from config.redis_key import settings as redis_key_settings
 

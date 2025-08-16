@@ -9,7 +9,7 @@ import re
 import sqlmodel as sm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exceptions import (
+from app.exceptions import (
     CellphoneAlreadyExistsError,
     CellphoneEmptyError,
     InvalidCellphoneError,

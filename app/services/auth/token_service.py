@@ -6,7 +6,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from app.exceptions.exceptions import InvalidTokenError
+from app.exceptions import InvalidTokenError
 from app.models.user import UserModel
 from app.providers.database_provider import redis_client
 from app.schemas.jwt import JWTSc

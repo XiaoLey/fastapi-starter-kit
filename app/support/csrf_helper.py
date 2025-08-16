@@ -6,7 +6,7 @@
 
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-from app.exceptions.exceptions import InvalidCSRFError
+from app.exceptions import InvalidCSRFError
 
 
 def generate_csrf_token(secret: str, user_id: str):
