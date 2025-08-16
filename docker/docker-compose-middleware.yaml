@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:15-alpine
+    #restart: always
+    volumes:
+      - ./volumes/db:/var/lib/postgresql/data/pgdata
+    env_file:
+      - .env
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_DB: ${POSTGRES_DB:-fastapi}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fastapi123456}
+      LANG: zh_CN.UTF-8
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=zh-CN"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fastapi}"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:6-alpine
+    #restart: always
+    volumes:
+      - ./volumes/redis/data:/data
+    env_file:
+      - .env
+    command: redis-server --requirepass ${REDIS_PASSWORD:-fastapi123456} --notify-keyspace-events Ex
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+    ports:
+      - "6379:6379"
