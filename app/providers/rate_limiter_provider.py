@@ -4,7 +4,7 @@ from typing import Union
 
 from fastapi import Request, Response, WebSocket
 
-from app.exceptions.exception import TooManyRequestsError
+from app.exceptions.exceptions import TooManyRequestsError
 
 
 async def default_identifier(request: Union[Request, WebSocket]):

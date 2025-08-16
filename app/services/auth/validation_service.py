@@ -9,7 +9,7 @@ import re
 import sqlmodel as sm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exception import (
+from app.exceptions.exceptions import (
     CellphoneAlreadyExistsError,
     CellphoneEmptyError,
     InvalidCellphoneError,
@@ -19,7 +19,7 @@ from app.exceptions.exception import (
     UsernameEmptyError,
 )
 from app.models.user import UserModel
-from app.support.helper import is_chinese_cellphone
+from app.support.string_helper import is_chinese_cellphone
 from config.verify import settings
 
 

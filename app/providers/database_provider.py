@@ -2,7 +2,7 @@ import redis.asyncio as redis
 import sqlmodel as sm
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import app.providers.sqlalchemy  # noqa: F401
+import app.providers.sqlalchemy_provider  # noqa: F401
 from config.config import settings as config_settings
 from config.database import redis_settings
 from config.database import settings as db_settings

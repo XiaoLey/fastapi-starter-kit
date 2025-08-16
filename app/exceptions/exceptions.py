@@ -1,5 +1,5 @@
 #
-# 框架异常类
+# 异常类
 #
 
 from copy import deepcopy

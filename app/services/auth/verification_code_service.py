@@ -1,11 +1,11 @@
 #
-# 随机验证码服务
+# 验证码服务
 #
 # 提供验证码的生成、存储和验证功能，支持 Redis 缓存和开发环境超级验证码。
 #
 
-from app.providers.database import redis_client
-from app.support.helper import numeric_random
+from app.providers.database_provider import redis_client
+from app.support.string_helper import numeric_random
 from config.config import settings
 from config.redis_key import settings as redis_key_settings
 

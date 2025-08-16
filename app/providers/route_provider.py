@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi_limiter.depends import RateLimiter, WebSocketRateLimiter
 
-from app.providers import rate_limiter
+from app.providers import rate_limiter_provider
 from app.support.modules_helper import get_attributes_from_all_modules
 from config.config import settings
 
@@ -11,11 +11,15 @@ def boot(app: FastAPI):
     router_ws_dict = get_attributes_from_all_modules('app/http/api', 'router_ws')
 
     app_http = APIRouter(
-        dependencies=[Depends(RateLimiter(times=settings.QPS, seconds=1, callback=rate_limiter.http_app_callback))]
+        dependencies=[
+            Depends(RateLimiter(times=settings.QPS, seconds=1, callback=rate_limiter_provider.http_app_callback))
+        ]
     )
     app_ws = APIRouter(
         dependencies=[
-            Depends(WebSocketRateLimiter(times=settings.QPS, seconds=1, callback=rate_limiter.http_app_callback))
+            Depends(
+                WebSocketRateLimiter(times=settings.QPS, seconds=1, callback=rate_limiter_provider.http_app_callback)
+            )
         ]
     )
 

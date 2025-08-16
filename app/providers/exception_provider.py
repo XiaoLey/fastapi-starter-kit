@@ -12,43 +12,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 from app.exceptions.error_code import ErrorCode
-from app.exceptions.exception import (
+from app.exceptions.exceptions import (
     DataBrokenError,
     InternalValidationError,
     InvalidTokenError,
     TokenExpiredError,
     ValidationError,
 )
-
-
-def _encode_headers(headers: dict) -> dict:
-    encoded_headers = {}
-    for k, v in headers.items():
-        encoded_key = quote(k)  # URL 编码键
-        encoded_value = quote(v)  # URL 编码值
-        encoded_headers[encoded_key] = encoded_value
-    return encoded_headers
-
-
-def _handle_exception(request: Request, exc: StarletteHTTPException, code: str, add_info: any = None) -> JSONResponse:
-    headers: dict = getattr(exc, 'headers', None)
-
-    if headers:
-        if 'Access-Control-Expose-Headers' in headers:
-            del headers['Access-Control-Expose-Headers']
-        headers['Access-Control-Expose-Headers'] = ','.join(headers.keys())
-
-        # 对 headers 进行 URL 编码处理，确保不会有编码错误
-        headers = _encode_headers(headers)
-
-    detail: dict = {
-        'code': code,
-        # 'request_ip': request.scope['client'][0],
-        'time_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-        'add_info': add_info,
-    }
-    # logging.warning({'status_code': exc.status_code, 'detail': detail, 'headers': headers})
-    return JSONResponse({'detail': detail}, status_code=exc.status_code, headers=headers)
 
 
 def register(app: FastAPI):
@@ -98,3 +68,33 @@ def register(app: FastAPI):
     async def response_validation_exception_handler(request: Request, exc):
         logging.error(str(exc))
         return _handle_exception(request, InternalValidationError(), code=ErrorCode.INTERNAL_VALIDATION_ERROR)
+
+
+def _encode_headers(headers: dict) -> dict:
+    encoded_headers = {}
+    for k, v in headers.items():
+        encoded_key = quote(k)  # URL 编码键
+        encoded_value = quote(v)  # URL 编码值
+        encoded_headers[encoded_key] = encoded_value
+    return encoded_headers
+
+
+def _handle_exception(request: Request, exc: StarletteHTTPException, code: str, add_info: any = None) -> JSONResponse:
+    headers: dict = getattr(exc, 'headers', None)
+
+    if headers:
+        if 'Access-Control-Expose-Headers' in headers:
+            del headers['Access-Control-Expose-Headers']
+        headers['Access-Control-Expose-Headers'] = ','.join(headers.keys())
+
+        # 对 headers 进行 URL 编码处理，确保不会有编码错误
+        headers = _encode_headers(headers)
+
+    detail: dict = {
+        'code': code,
+        # 'request_ip': request.scope['client'][0],
+        'time_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+        'add_info': add_info,
+    }
+    # logging.warning({'status_code': exc.status_code, 'detail': detail, 'headers': headers})
+    return JSONResponse({'detail': detail}, status_code=exc.status_code, headers=headers)

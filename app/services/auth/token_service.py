@@ -6,12 +6,12 @@
 
 from datetime import datetime, timedelta, timezone
 
-from app.exceptions.exception import InvalidTokenError
+from app.exceptions.exceptions import InvalidTokenError
 from app.models.user import UserModel
-from app.providers.database import redis_client
+from app.providers.database_provider import redis_client
 from app.schemas.jwt import JWTSc
 from app.schemas.token import TokenSc
-from app.services.auth import jwt_helper
+from app.support import jwt_helper
 from config.auth import settings
 from config.redis_key import settings as redis_key_settings
 

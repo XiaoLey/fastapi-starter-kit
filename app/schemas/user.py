@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import Field
 
 from app.schemas.base import BaseSc
-from app.support.type import GenderFormat
+from app.support.types import GenderFormat
 
 
 class UserCreateRecvSc(BaseSc):

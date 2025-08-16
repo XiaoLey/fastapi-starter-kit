@@ -11,7 +11,7 @@ import httpx
 from httpx_socks import AsyncProxyTransport
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-from app.providers.httpx import httpx_client_params
+from app.providers.httpx_provider import httpx_client_params
 from config.http import settings as http_settings
 
 _head_headers = {'User-Agent': http_settings.USER_AGENT, 'Range': 'bytes=0-'}

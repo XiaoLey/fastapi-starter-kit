@@ -11,8 +11,8 @@ from fastapi.requests import HTTPConnection
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exception import AuthenticationError, InvalidUserError
-from app.http.deps.database import get_db
+from app.exceptions.exceptions import AuthenticationError, InvalidUserError
+from app.http.deps.database_deps import get_db
 from app.models.user import UserModel
 from app.services.auth.token_service import validate_token
 from config.config import settings as config_settings

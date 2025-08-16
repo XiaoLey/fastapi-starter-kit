@@ -1,16 +1,14 @@
 #
-# 通用辅助函数模块
+# 字符串处理辅助函数
 #
-# 提供了一系列通用的辅助函数，用于字符串处理、哈希计算、数据验证、URL 操作等。
+# 提供字符串生成、验证和处理等常用功能。
 #
 
-import hashlib
 import mimetypes
 import random
 import re
 import string
 from typing import Union
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import magic
 
@@ -49,20 +47,6 @@ def numeric_random(length: int) -> str:
     """
     str_list = [random.choice(string.digits) for i in range(length)]
     return ''.join(str_list)
-
-
-def sha1_hash(content: Union[str, bytes]) -> str:
-    """计算sha1
-
-    Args:
-        content: 要计算的内容
-
-    Returns:
-        sha1
-    """
-    sha1 = hashlib.sha1()
-    sha1.update(type(content) == str and content.encode('utf-8') or content)
-    return sha1.hexdigest()
 
 
 def is_chinese_cellphone(cellphone) -> bool:
@@ -107,45 +91,3 @@ def is_likely_base64(s: str, urlsafe: bool = False) -> bool:
 
     # 通过所有检查，返回 True
     return True
-
-
-def is_url(url: str) -> bool:
-    """
-    判断是否为有效的 URL
-    """
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except Exception:
-        return False
-
-
-def encode_url(url: str) -> str:
-    """对 URL 的 path、query 和 fragment 部分进行编码
-
-    Args:
-        url: 原始 URL
-
-    Returns:
-        编码后的 URL
-    """
-    # 解析 URL
-    parsed_url = urlparse(url)
-
-    # 编码 path、query 和 fragment
-    encoded_path = quote(parsed_url.path)
-    query_params = dict(parse_qsl(parsed_url.query))
-    encoded_query = urlencode(query_params)
-    encoded_fragment = quote(parsed_url.fragment)
-
-    # 构建新的 URL
-    new_url = urlunparse((
-        parsed_url.scheme,
-        parsed_url.netloc,
-        encoded_path,
-        parsed_url.params,
-        encoded_query,
-        encoded_fragment,
-    ))
-
-    return new_url

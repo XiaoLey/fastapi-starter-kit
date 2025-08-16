@@ -11,7 +11,7 @@ import sqlmodel as sm
 from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exception import (
+from app.exceptions.exceptions import (
     InsufficientPermissionsError,
     InvalidCellphoneCodeError,
     InvalidPasswordError,
@@ -22,9 +22,10 @@ from app.exceptions.exception import (
 from app.models.user import UserModel
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
 from app.schemas.user import UserCreateRecvSc
-from app.services.auth import password_hashing, random_code_verifier
+from app.services.auth import verification_code_service
 from app.services.auth.token_service import create_token_response_from_user
 from app.services.auth.user_service import create_user
+from app.support import password_helper
 
 
 class PasswordGrant:
@@ -45,7 +46,7 @@ class PasswordGrant:
             raise UserNotFoundError()
 
         # 用户密码校验
-        if not (user.password and password_hashing.verify_password(self.request_data.password, user.password)):
+        if not (user.password and password_helper.verify_password(self.request_data.password, user.password)):
             raise InvalidPasswordError()
 
         # 用户状态校验
@@ -71,7 +72,7 @@ class CellphoneGrant:
         cellphone = self.request_data.cellphone
         code = self.request_data.verification_code
 
-        if not await random_code_verifier.verify(cellphone, code):
+        if not await verification_code_service.verify(cellphone, code):
             raise InvalidCellphoneCodeError()
 
         user = await UserModel.get_one(self.session, UserModel.cellphone == cellphone)

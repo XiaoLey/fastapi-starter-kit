@@ -1,6 +1,6 @@
 import uvicorn
 
-import app.providers.mimetypes  # noqa: F401
+import app.providers.mimetypes_provider  # noqa: F401
 from config.config import settings
 from config.logging import settings as logging_settings
 

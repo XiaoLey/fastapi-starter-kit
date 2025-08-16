@@ -2,9 +2,9 @@ import logging
 
 from fastapi import Depends, FastAPI
 
-import app.http.deps as deps
-from app.providers import app_provider, handle_exception, logging_provider, middleware_provider, route_provider
-from app.providers.app_lifespan import lifespan
+from app.http.deps import firewall_deps
+from app.providers import app_provider, exception_provider, logging_provider, middleware_provider, route_provider
+from app.providers.lifespan_provider import lifespan
 from config.config import settings
 
 
@@ -14,7 +14,7 @@ def create_app() -> FastAPI:
         'title': settings.NAME,
         'version': settings.VERSION,
         'lifespan': lifespan,
-        'dependencies': [Depends(deps.verify_ip_banned)],
+        'dependencies': [Depends(firewall_deps.verify_ip_banned)],
     }
 
     if settings.DEBUG:
@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
 
     register(app, logging_provider)
     register(app, app_provider)
-    register(app, handle_exception)
+    register(app, exception_provider)
     register(app, middleware_provider)
 
     boot(app, route_provider)

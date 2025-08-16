@@ -28,10 +28,6 @@ class BaseModel(SQLModel):
     )
 
     @classmethod
-    def _columns(cls):
-        return list(cls.model_fields.keys())
-
-    @classmethod
     def get_init_sql_alembic_ddls(cls):
         """获取表创建前要执行的sql语句"""
         util_schema_list = [
@@ -96,6 +92,10 @@ class BaseModel(SQLModel):
         获取扩展alembic的ddl
         """
         return []
+
+    @classmethod
+    def _columns(cls):
+        return list(cls.model_fields.keys())
 
 
 class ViewModel(BaseModel):
