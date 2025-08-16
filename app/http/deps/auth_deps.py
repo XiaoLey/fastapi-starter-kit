@@ -32,7 +32,7 @@ class OAuth2PasswordBearerWithWebSocket(OAuth2PasswordBearer):
         return token
 
 
-oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/login')
+oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/token/password')
 
 
 async def get_auth_user(token: str = Depends(oauth2_token), session: AsyncSession = Depends(get_db)) -> UserModel:
