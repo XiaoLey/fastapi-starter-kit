@@ -9,7 +9,7 @@ import re
 import urllib.parse
 from pathlib import Path
 
-from app.exceptions.exceptions import InvalidFileNameError
+from app.exceptions import InvalidFileNameError
 
 
 def check_file_name_safty(file_name: str, base_dir: str) -> str:

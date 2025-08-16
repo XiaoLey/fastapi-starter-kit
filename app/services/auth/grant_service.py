@@ -11,7 +11,7 @@ import sqlmodel as sm
 from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exceptions import (
+from app.exceptions import (
     InsufficientPermissionsError,
     InvalidCellphoneCodeError,
     InvalidPasswordError,

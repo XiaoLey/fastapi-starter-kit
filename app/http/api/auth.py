@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exceptions import InvalidCellphoneCodeError, InvalidCellphoneError
+from app.exceptions import InvalidCellphoneCodeError, InvalidCellphoneError
 from app.http.deps import auth_deps, database_deps, request_deps
 from app.schemas.common import BoolSc
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc

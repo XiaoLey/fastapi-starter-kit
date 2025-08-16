@@ -5,7 +5,7 @@
 from fastapi import Request, WebSocket
 from fastapi.requests import HTTPConnection
 
-from app.exceptions.exceptions import UnknownProtocol
+from app.exceptions import UnknownProtocol
 
 
 async def get_request_ip(request_or_ws: HTTPConnection) -> str:

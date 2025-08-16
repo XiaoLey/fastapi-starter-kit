@@ -1,6 +1,6 @@
-import datetime
 import json
 import logging
+from typing import Optional
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
@@ -11,8 +11,8 @@ from pydantic import ValidationError as PydanticValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED
 
-from app.exceptions.error_code import ErrorCode
-from app.exceptions.exceptions import (
+from app.exceptions import (
+    AuthenticationError,
     DataBrokenError,
     InternalValidationError,
     InvalidTokenError,
@@ -25,25 +25,25 @@ def register(app: FastAPI):
     @app.exception_handler(json.decoder.JSONDecodeError)
     async def json_decode_error(request: Request, exc: json.decoder.JSONDecodeError):
         logging.error(exc)
-        return _handle_exception(request, DataBrokenError(), code=ErrorCode.DATA_BROKEN_ERROR)
+        return _handle_exception(request, DataBrokenError())
 
     @app.exception_handler(jwt.ExpiredSignatureError)
     async def jwt_expired_exception_handler(request: Request, exc: jwt.ExpiredSignatureError):
-        return _handle_exception(request, TokenExpiredError(), code=ErrorCode.TOKEN_EXPIRED_ERROR)
+        return _handle_exception(request, TokenExpiredError())
 
     @app.exception_handler(jwt.JWTError)
     async def jwt_exception_handler(request: Request, exc: jwt.JWTError):
-        return _handle_exception(request, InvalidTokenError(), code=ErrorCode.INVALID_TOKEN_ERROR)
+        return _handle_exception(request, InvalidTokenError())
 
     @app.exception_handler(jwt.JWTClaimsError)
     async def jwt_claims_exception_handler(request: Request, exc: jwt.JWTClaimsError):
-        return _handle_exception(request, InvalidTokenError(), code=ErrorCode.INVALID_TOKEN_ERROR)
+        return _handle_exception(request, InvalidTokenError())
 
     @app.exception_handler(StarletteHTTPException)
     async def custom_http_exception_handler(request: Request, exc):
         if exc.status_code == HTTP_401_UNAUTHORIZED and exc.detail == 'Not authenticated':
-            exc.detail = ErrorCode.AUTHENTICATION_ERROR
-        return _handle_exception(request, exc, code=exc.detail)
+            return _handle_exception(request, AuthenticationError(message='Not authenticated'))
+        return _handle_exception(request, exc)
 
     @app.exception_handler(PydanticValidationError)
     async def pydantic_exception_handler(request: Request, exc):
@@ -51,7 +51,7 @@ def register(app: FastAPI):
             logging.error(exc.json())
         except:
             logging.error(str(exc))
-        return _handle_exception(request, InternalValidationError(), code=ErrorCode.INTERNAL_VALIDATION_ERROR)
+        return _handle_exception(request, InternalValidationError())
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc):
@@ -62,15 +62,16 @@ def register(app: FastAPI):
             validation_details.append(validation_detail)
         add_info = {'errors': validation_details}
         logging.warning(str(exc))
-        return _handle_exception(request, ValidationError(), code=ErrorCode.VALIDATION_ERROR, add_info=add_info)
+        return _handle_exception(request, ValidationError(), add_info=add_info)
 
     @app.exception_handler(ResponseValidationError)
     async def response_validation_exception_handler(request: Request, exc):
         logging.error(str(exc))
-        return _handle_exception(request, InternalValidationError(), code=ErrorCode.INTERNAL_VALIDATION_ERROR)
+        return _handle_exception(request, InternalValidationError())
 
 
 def _encode_headers(headers: dict) -> dict:
+    """对 headers 的键和值进行 URL 编码，防止出现编码错误"""
     encoded_headers = {}
     for k, v in headers.items():
         encoded_key = quote(k)  # URL 编码键
@@ -79,22 +80,16 @@ def _encode_headers(headers: dict) -> dict:
     return encoded_headers
 
 
-def _handle_exception(request: Request, exc: StarletteHTTPException, code: str, add_info: any = None) -> JSONResponse:
-    headers: dict = getattr(exc, 'headers', None)
+def _handle_exception(request: Request, exc: StarletteHTTPException, add_info: any = None) -> JSONResponse:
+    headers: Optional[dict] = getattr(exc, 'headers', None)
 
     if headers:
         if 'Access-Control-Expose-Headers' in headers:
             del headers['Access-Control-Expose-Headers']
         headers['Access-Control-Expose-Headers'] = ','.join(headers.keys())
-
-        # 对 headers 进行 URL 编码处理，确保不会有编码错误
         headers = _encode_headers(headers)
 
-    detail: dict = {
-        'code': code,
-        # 'request_ip': request.scope['client'][0],
-        'time_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-        'add_info': add_info,
-    }
-    # logging.warning({'status_code': exc.status_code, 'detail': detail, 'headers': headers})
-    return JSONResponse({'detail': detail}, status_code=exc.status_code, headers=headers)
+    exc.detail['add_info'] = add_info
+
+    # logging.warning({'status_code': exc.status_code, 'detail': exc.detail, 'headers': headers})
+    return JSONResponse(content=exc.detail, status_code=exc.status_code, headers=headers)

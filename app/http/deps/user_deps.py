@@ -5,7 +5,7 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.exceptions import InsufficientPermissionsError
+from app.exceptions import InsufficientPermissionsError
 from app.http.deps.auth_deps import get_auth_user
 from app.http.deps.database_deps import get_db
 from app.models.user import UserModel
