@@ -64,6 +64,7 @@ class CellphoneGrant:
     """手机号授权"""
 
     def __init__(self, session: AsyncSession, client_ip: str, request_data: OAuth2CellphoneSc):
+        self.is_creating_user = False # 标记是否正在创建新用户
         self.session = session
         self.client_ip = client_ip
         self.request_data = request_data
@@ -91,6 +92,7 @@ class CellphoneGrant:
                     cellphone_verify_code='',
                 )
                 user = await create_user(self.session, self.client_ip, new_user_info)
+                self.is_creating_user = True
             except UsernameAlreadyExistsError:
                 continue
             except Exception as e:
