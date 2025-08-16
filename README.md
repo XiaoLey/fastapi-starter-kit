@@ -6,6 +6,15 @@ FastAPI Starter Kit 是一个基于 FastAPI 框架的高性能、可扩展的 We
 
 本项目适用于构建 RESTful API、微服务架构或需要高并发支持的应用程序，特别适合对性能和开发效率有较高要求的场景。无论是初学者还是资深开发者，都可以通过此脚手架快速上手并定制符合业务需求的应用。
 
+## 系统要求
+
+- **Python**：3.8+ 版本
+- **操作系统**：
+  - **Linux**：完全支持，已在生产环境验证 ✅
+  - **Windows**：支持，提供专用依赖和编码处理 ✅
+  - **macOS**：理论支持，建议使用 Linux 依赖配置 ⚠️
+- **数据库**：PostgreSQL 15 / Redis 6（推荐使用 Docker）
+
 ## 核心特性
 
 - **高性能框架**：基于 FastAPI，充分利用异步编程，提供极高的请求处理速度。
@@ -15,6 +24,7 @@ FastAPI Starter Kit 是一个基于 FastAPI 框架的高性能、可扩展的 We
 - **缓存与存储**：内置 Redis 支持，用于高效缓存和会话管理，提升应用性能。
 - **任务调度**：内置异步任务调度器（APScheduler），支持定时任务和后台任务处理。
 - **日志与监控**：完善的日志系统，便于调试和生产环境监控。
+- **跨平台支持**：经过 Linux 和 Windows 环境测试，理论上支持 macOS。
 - **生产就绪**：提供开发和生产环境配置。
 
 ## 项目结构
@@ -35,15 +45,16 @@ fastapi-starter
 │   ├── schemas             # 数据模式目录，定义请求和响应的数据结构
 │   ├── services            # 服务层目录，处理业务逻辑
 │   ├── providers           # 服务提供者目录，包含应用初始化和依赖提供逻辑
-│   ├── exceptions          # 异常处理模块，定义项目中的自定义异常
 │   ├── support             # 辅助工具目录，包含通用工具函数
 │   └── jobs                # 任务调度目录，包含定时任务或后台任务
+│   ├── exceptions.py       # 异常处理模块，定义项目中的自定义异常
 ├── bootstrap               # 应用启动目录，包含初始化逻辑
 │   ├── application.py      # 应用启动主文件，初始化FastAPI应用并注册核心提供者
 │   └── scheduler.py        # 异步任务调度器初始化文件，配置和管理定时任务
 ├── config                  # 配置目录，存储项目配置信息
 ├── database                # 数据库相关目录，包含SQL脚本等
 │   └── postgresql          # PostgreSQL数据库相关脚本目录
+├── docker                  # Docker容器化配置目录，包含数据库服务编排文件
 ├── start_web.sh            # 启动Web应用的脚本（生产模式时使用）
 ├── start_scheduler.sh      # 启动调度器的脚本（生产模式时使用）
 ├── migrations              # 数据库迁移目录，存储Alembic迁移脚本
@@ -55,10 +66,92 @@ fastapi-starter
 
 ### 环境准备
 
-1. **安装数据库**：安装 PostgreSQL 15 和 Redis 6（Docker 下可使用 `postgres:15-alpine` 和 `redis:6-alpine` 镜像）。
-2. **安装依赖**：确保已安装 Python 3.8+，然后使用 `pip install -r requirements.txt` 安装项目依赖。
-3. **配置环境变量**：项目提供 `.env.example` 作为模板，可拷贝为 `.env` 并修改环境变量（如 PostgreSQL、Redis 连接、认证密钥等），与 `config` 目录对应，后续可扩展更多变量。
-4. **数据库初始化**：PostgreSQL 中创建好相应数据库后，运行 `alembic upgrade head` 应用数据库迁移，初始化数据库表结构。
+#### 1. Python 环境设置
+
+确保已安装 Python 3.8+ 版本，然后创建并激活虚拟环境：
+
+```bash
+# 创建虚拟环境
+python -m venv fastapi-env
+
+# 激活虚拟环境
+# Linux/macOS:
+source fastapi-env/bin/activate
+# Windows:
+fastapi-env\Scripts\activate
+```
+
+#### 2. 安装项目依赖
+
+根据你的操作系统选择对应的依赖文件：
+
+```bash
+# Linux/macOS 用户
+pip install -r requirements.txt
+
+# Windows 用户
+pip install -r requirements-win.txt
+
+# 开发环境（可选，包含开发工具）
+pip install -r requirements-dev.txt
+```
+
+> **注意**：macOS 用户如遇到依赖问题，可尝试使用 `requirements-win.txt`
+
+#### 3. 数据库服务启动
+
+**方式一：使用 Docker（推荐）**
+
+项目提供了 Docker Compose 配置文件，可以快速启动 PostgreSQL 和 Redis 服务：
+
+```bash
+# 启动数据库服务（PostgreSQL + Redis）
+cd docker
+docker-compose -f docker-compose-middleware.yaml up -d
+
+# 查看服务状态
+docker-compose -f docker-compose-middleware.yaml ps
+
+# 停止服务（当需要时）
+docker-compose -f docker-compose-middleware.yaml down
+```
+
+**方式二：手动安装**
+
+如果不使用 Docker，需要手动安装：
+
+- PostgreSQL 15（推荐使用 `postgres:15-alpine` 版本的配置）
+- Redis 6（推荐使用 `redis:6-alpine` 版本的配置）
+
+#### 4. 配置环境变量
+
+复制环境变量模板并根据需要修改：
+
+```bash
+# 复制环境变量模板到项目根目录（供应用程序使用）
+cp .env.example .env
+
+# 如果使用 Docker 方式，还需要复制一份到 docker 目录（供 Docker Compose 使用）
+cp .env.example docker/.env
+
+# 编辑环境变量文件
+# 开发环境：可以直接使用模板中的默认值
+# 生产环境：必须修改密码和密钥等敏感信息，不能使用默认值
+```
+
+**注意**：如果你使用 Docker 方式启动数据库服务，需要确保 `docker/.env` 文件存在，否则 Docker Compose 将使用默认值。
+
+#### 5. 数据库初始化
+
+返回项目根目录，在 PostgreSQL 服务启动后，运行数据库迁移来初始化表结构：
+
+```bash
+# 确保在项目根目录下执行（如果之前在 docker 目录中，需要先返回上级目录）
+cd ..
+
+# 应用数据库迁移
+alembic upgrade head
+```
 
 ### 运行项目
 
