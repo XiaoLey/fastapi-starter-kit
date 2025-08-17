@@ -14,9 +14,7 @@ class Settings(BaseSettings):
     SERVER_PORT: int = 8000
     API_PREFIX: str = '/api'
 
-    BASE_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-    SEMAPHORE: int = 4  # 通用最大并发数
+    BASE_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 项目根目录
 
     QPS: int = 10  # 全局QPS（其他局部的无法高于此值）
 
