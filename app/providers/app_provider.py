@@ -5,10 +5,10 @@ from config.config import settings
 
 
 def register(app: FastAPI):
-    add_global_middleware(app)
+    _add_global_middleware(app)
 
 
-def add_global_middleware(app: FastAPI):
+def _add_global_middleware(app: FastAPI):
     """
     注册全局中间件
     """

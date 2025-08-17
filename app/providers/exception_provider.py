@@ -60,7 +60,7 @@ def register(app: FastAPI):
         for error in detail:
             validation_detail = {'loc': error['loc'], 'type': error['type']}
             validation_details.append(validation_detail)
-        add_info = {'detail': validation_details}
+        add_info = {'message': 'Validation failed', 'detail': validation_details}
         logging.warning(str(exc))
         return _handle_exception(request, ValidationError(), add_info=add_info)
 

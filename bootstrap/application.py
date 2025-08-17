@@ -3,7 +3,14 @@ import logging
 from fastapi import Depends, FastAPI
 
 from app.http.deps import firewall_deps
-from app.providers import app_provider, exception_provider, logging_provider, middleware_provider, route_provider
+from app.providers import (
+    app_provider,
+    exception_provider,
+    logging_provider,
+    middleware_provider,
+    openapi_provider,
+    route_provider,
+)
 from app.providers.lifespan_provider import lifespan
 from config.config import settings
 
@@ -29,6 +36,7 @@ def create_app() -> FastAPI:
     register(app, app_provider)
     register(app, exception_provider)
     register(app, middleware_provider)
+    register(app, openapi_provider)
 
     boot(app, route_provider)
 
