@@ -73,7 +73,7 @@ class CellphoneGrant:
         cellphone = self.request_data.cellphone
         code = self.request_data.verification_code
 
-        if not await verification_code_service.verify(cellphone, code):
+        if not await verification_code_service.verify_code(cellphone, code):
             raise InvalidCellphoneCodeError()
 
         user = await UserModel.get_one(self.session, UserModel.cellphone == cellphone)
@@ -89,7 +89,7 @@ class CellphoneGrant:
                     nickname=username,
                     gender='unknown',
                     cellphone=cellphone,
-                    cellphone_verify_code='',
+                    cellphone_verification_code='',
                 )
                 user = await create_user(self.session, self.client_ip, new_user_info)
                 self.is_creating_user = True

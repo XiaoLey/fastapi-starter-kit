@@ -74,6 +74,6 @@ async def send_cellphone_verification_code(cellphone: str = Body(..., embed=True
     if not is_chinese_cellphone(cellphone):
         raise InvalidCellphoneError()
 
-    code = await verification_code_service.make(cellphone, 60 * 5)
+    code = await verification_code_service.make_code(cellphone, 60 * 5)
     await sms_sender.send_verification_code(cellphone, code)
     return BoolSc(success=True)

@@ -4,13 +4,14 @@
 # 提供验证码的生成、存储和验证功能，支持 Redis 缓存和开发环境超级验证码。
 #
 
+from app.exceptions import InvalidCellphoneCodeError
 from app.providers.database_provider import redis_client
 from app.support.string_helper import numeric_random
 from config.config import settings
 from config.redis_key import settings as redis_key_settings
 
 
-async def make(key, expired=180, length=6) -> str:
+async def make_code(key, expired=180, length=6) -> str:
     """生成随机码，存储到服务端，返回随机码
 
     Args:
@@ -26,23 +27,23 @@ async def make(key, expired=180, length=6) -> str:
     return code
 
 
-async def verify(key, verification_code, delete_when_passed=True) -> bool:
+async def verify_code(key, verification_code, delete_when_passed=True):
     """校验验证码"""
     # 开发环境，可以任意账号使用超级验证码
     super_code = '417938'
     if settings.DEBUG and verification_code == super_code:
-        return True
+        return
 
     # 校验验证码
     key = _get_redis_key(key)
     code = await redis_client.get(key)
     passed = code and code == verification_code
 
-    # 若通过验证立即删除
-    if passed and delete_when_passed:
-        await redis_client.delete(key)
+    if not passed:
+        raise InvalidCellphoneCodeError()
 
-    return passed
+    if delete_when_passed:
+        await redis_client.delete(key)
 
 
 def _get_redis_key(key):

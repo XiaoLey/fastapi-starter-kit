@@ -20,10 +20,10 @@ from app.exceptions import (
 )
 from app.models.user import UserModel
 from app.support.string_helper import is_chinese_cellphone
-from config.verify import settings
+from config.validation import settings
 
 
-async def verify_username_availability(session: AsyncSession, username: str, exclude_id: int = None):
+async def validate_username_availability(session: AsyncSession, username: str, exclude_id: int = None):
     """验证用户名是否可用
 
     Args:
@@ -54,7 +54,7 @@ async def verify_username_availability(session: AsyncSession, username: str, exc
         raise UsernameAlreadyExistsError()
 
 
-async def verify_cellphone_availability(session: AsyncSession, cellphone: str, exclude_id: int = None):
+async def validate_cellphone_availability(session: AsyncSession, cellphone: str, exclude_id: int = None):
     """验证手机号是否可用
 
     Args:
