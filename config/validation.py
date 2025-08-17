@@ -1,5 +1,6 @@
 import re
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,14 @@ class Settings(BaseSettings):
         env_file_encoding='utf-8',
         extra='ignore',  # 忽略额外的输入
     )
+
+    @field_validator('USERNAME_PATTERN', mode='before')
+    @classmethod
+    def validate_username_pattern(cls, v: str | re.Pattern):
+        """将字符串模式转换为正则表达式对象"""
+        if isinstance(v, str):
+            return re.compile(v)
+        return v
 
 
 settings = Settings()
