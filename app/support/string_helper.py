@@ -34,17 +34,13 @@ def get_bytes_mime_type(content: Union[str, bytes]) -> tuple[str, str]:
 
 
 def alphanumeric_random(length: int = 16) -> str:
-    """
-    生成指定长度的字母和数字的随机字符串
-    """
+    """生成指定长度的字母和数字的随机字符串"""
     str_list = [random.choice(string.ascii_letters + string.digits) for i in range(length)]
     return ''.join(str_list)
 
 
 def numeric_random(length: int) -> str:
-    """
-    生成指定长度的数字的随机字符串
-    """
+    """生成指定长度的数字的随机字符串"""
     str_list = [random.choice(string.digits) for i in range(length)]
     return ''.join(str_list)
 
