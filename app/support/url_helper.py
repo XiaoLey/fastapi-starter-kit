@@ -8,9 +8,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 
 def is_url(url: str) -> bool:
-    """
-    判断是否为有效的 URL
-    """
+    """判断是否为有效的 URL"""
     try:
         result = urlparse(url)
         return all([result.scheme, result.netloc])

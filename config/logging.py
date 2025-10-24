@@ -9,8 +9,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from config.config import settings as app_settings
 
-_hostname = socket.gethostname()
-
 
 class Settings(BaseSettings):
     LOG_LEVEL: str = 'INFO'
@@ -26,9 +24,10 @@ class Settings(BaseSettings):
 
     @field_validator('LOG_FILE_WITH_HOSTNAME_PREFIX', mode='after')
     @classmethod
-    def validate_log_file_with_hostname_prefix(cls, v, values: ValidationInfo):
+    def validate_log_file_with_hostname_prefix(cls, v: bool, values: ValidationInfo):
+        """如果启用，则在日志文件名中包含主机名前缀"""
         if v:
-            values.data['LOG_PATH'] = values.data['LOG_PATH'].replace('[hostname]', _hostname)
+            values.data['LOG_PATH'] = values.data['LOG_PATH'].replace('[hostname]', socket.gethostname())
         else:
             values.data['LOG_PATH'] = values.data['LOG_PATH'].replace('[hostname]', '')
 

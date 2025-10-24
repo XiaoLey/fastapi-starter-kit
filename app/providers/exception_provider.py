@@ -54,12 +54,12 @@ def register(app: FastAPI):
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc):
-        details = exc.errors()
+        detail = exc.errors()
         validation_details = []
-        for error in details:
+        for error in detail:
             validation_detail = {'loc': error['loc'], 'type': error['type']}
             validation_details.append(validation_detail)
-        add_info = {'errors': validation_details}
+        add_info = {'message': 'Validation failed', 'detail': validation_details}
         logging.warning(str(exc))
         return _handle_exception(request, ValidationError(), add_info=add_info)
 
@@ -88,7 +88,11 @@ def _handle_exception(request: Request, exc: StarletteHTTPException, add_info: a
         headers['Access-Control-Expose-Headers'] = ','.join(headers.keys())
         headers = _encode_headers(headers)
 
-    exc.detail['add_info'] = add_info
+    if add_info:
+        if isinstance(exc.detail, dict):
+            exc.detail.update(add_info)
+        else:
+            exc.detail = {'message': exc.detail, **add_info}
 
     # logging.warning({'status_code': exc.status_code, 'detail': exc.detail, 'headers': headers})
     return JSONResponse(content=exc.detail, status_code=exc.status_code, headers=headers)
