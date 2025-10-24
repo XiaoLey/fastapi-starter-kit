@@ -36,8 +36,6 @@ class ErrorCode:
     USERNAME_ALREADY_EXISTS_ERROR = 'USERNAME_ALREADY_EXISTS_ERROR'  # 用户名已存在
     CELLPHONE_ALREADY_EXISTS_ERROR = 'CELLPHONE_ALREADY_EXISTS_ERROR'  # 手机号已存在
 
-    INVALID_USERNAME_ERROR = 'INVALID_USERNAME_ERROR'  # 非法用户名
-    INVALID_USERNAME_LENGTH_ERROR: str = 'INVALID_USERNAME_LENGTH_ERROR'  # 非法用户名长度
     INVALID_CELLPHONE_ERROR = 'INVALID_CELLPHONE_ERROR'  # 非法手机号
     INVALID_CELLPHONE_CODE_ERROR = 'INVALID_CELLPHONE_CODE_ERROR'  # 无效手机验证码
 
@@ -47,8 +45,6 @@ class ErrorCode:
 
     USERNAME_EMPTY_ERROR = 'USERNAME_EMPTY_ERROR'  # 用户名为空
     CELLPHONE_EMPTY_ERROR = 'CELLPHONE_EMPTY_ERROR'  # 手机号为空
-
-    INSUFFICIENT_PERMISSIONS_ERROR = 'INSUFFICIENT_PERMISSIONS_ERROR'  # 权限不足
 
     TOO_MANY_REQUESTS = 'TOO_MANY_REQUESTS'  # 请求太频繁
     IP_BANNED_ERROR = 'IP_BANNED_ERROR'  # ip封锁
@@ -137,16 +133,6 @@ class CellphoneAlreadyExistsError(HTTPException):
     """手机号已存在"""
 
 
-@exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.INVALID_USERNAME_ERROR)
-class InvalidUsernameError(HTTPException):
-    """非法用户名"""
-
-
-@exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.INVALID_USERNAME_LENGTH_ERROR)
-class InvalidUsernameLengthError(HTTPException):
-    """非法用户名长度"""
-
-
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.INVALID_CELLPHONE_ERROR)
 class InvalidCellphoneError(HTTPException):
     """非法手机号"""
@@ -175,11 +161,6 @@ class UsernameEmptyError(HTTPException):
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.CELLPHONE_EMPTY_ERROR)
 class CellphoneEmptyError(HTTPException):
     """手机号为空"""
-
-
-@exception_decorator(HTTP_403_FORBIDDEN, ErrorCode.INSUFFICIENT_PERMISSIONS_ERROR)
-class InsufficientPermissionsError(HTTPException):
-    """权限不足"""
 
 
 @exception_decorator(HTTP_429_TOO_MANY_REQUESTS, ErrorCode.TOO_MANY_REQUESTS)

@@ -4,8 +4,6 @@
 # 存放与数据持久化相关的验证函数，用于检查唯一性、存在性等业务约束。
 #
 
-import re
-
 import sqlmodel as sm
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,14 +11,11 @@ from app.exceptions import (
     CellphoneAlreadyExistsError,
     CellphoneEmptyError,
     InvalidCellphoneError,
-    InvalidUsernameError,
-    InvalidUsernameLengthError,
     UsernameAlreadyExistsError,
     UsernameEmptyError,
 )
 from app.models.user import UserModel
 from app.support.string_helper import is_chinese_cellphone
-from config.verify import settings
 
 
 async def verify_username_availability(session: AsyncSession, username: str, exclude_id: int = None):
@@ -39,12 +34,6 @@ async def verify_username_availability(session: AsyncSession, username: str, exc
     """
     if not username:
         raise UsernameEmptyError()
-
-    if len(username) < settings.USERNAME_MIN_LENGTH or len(username) > settings.USERNAME_MAX_LENGTH:
-        raise InvalidUsernameLengthError()
-
-    if not re.match(settings.USERNAME_PATTERN, username):
-        raise InvalidUsernameError()
 
     query = sm.select(sm.func.count()).where((UserModel.username == username) | (UserModel.cellphone == username))
     if exclude_id:

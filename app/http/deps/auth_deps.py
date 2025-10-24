@@ -2,7 +2,6 @@
 # 鉴权依赖
 #
 
-from typing import Optional
 from uuid import UUID
 
 import sqlmodel as sm
@@ -19,7 +18,7 @@ from config.config import settings as config_settings
 
 
 class OAuth2PasswordBearerWithWebSocket(OAuth2PasswordBearer):
-    async def __call__(self, request_or_ws: HTTPConnection) -> Optional[str]:
+    async def __call__(self, request_or_ws: HTTPConnection) -> str | None:
         if isinstance(request_or_ws, Request):
             token = await super().__call__(request_or_ws)
         elif isinstance(request_or_ws, WebSocket):

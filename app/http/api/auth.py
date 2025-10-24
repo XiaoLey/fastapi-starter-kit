@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import InvalidCellphoneError
 from app.http.deps import auth_deps, database_deps, request_deps
 from app.schemas.common import BoolSc
-from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
+from app.schemas.oauth2 import OAuth2CellphoneSc
 from app.schemas.token import TokenSc, TokenStatusSc
 from app.services.auth import verification_code_service
 from app.services.auth.grant_service import CellphoneGrant, PasswordGrant
@@ -43,17 +43,6 @@ async def login_with_cellphone(
     token_data = await grant.respond()
     if grant.is_creating_user:
         await session.commit()
-    return token_data
-
-
-@router.post('/token/admin', response_model=TokenSc, name='管理员登录')
-async def login_as_admin(
-    request_data: OAuth2PasswordSc,
-    client_ip: Annotated[str, Depends(request_deps.get_request_ip)],
-    session: Annotated[AsyncSession, Depends(database_deps.get_db)],
-):
-    grant = PasswordGrant(session, client_ip, request_data)
-    token_data = await grant.respond(is_admin=True)
     return token_data
 
 

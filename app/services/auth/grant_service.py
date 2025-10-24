@@ -12,7 +12,6 @@ from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import (
-    InsufficientPermissionsError,
     InvalidCellphoneCodeError,
     InvalidPasswordError,
     InvalidUserError,
@@ -37,7 +36,7 @@ class PasswordGrant:
         self.client_ip = client_ip
         self.request_data = request_data
 
-    async def respond(self, is_admin: bool = False):
+    async def respond(self):
         user = await UserModel.get_one(
             self.session,
             sm.or_(UserModel.username == self.request_data.username, UserModel.cellphone == self.request_data.username),
@@ -53,10 +52,6 @@ class PasswordGrant:
         if not user.is_enabled():
             raise InvalidUserError()
 
-        # 管理员校验
-        if is_admin and not await user.is_admin(self.session):
-            raise InsufficientPermissionsError()
-
         return create_token_response_from_user(user)
 
 
@@ -64,7 +59,7 @@ class CellphoneGrant:
     """手机号授权"""
 
     def __init__(self, session: AsyncSession, client_ip: str, request_data: OAuth2CellphoneSc):
-        self.is_creating_user = False # 标记是否正在创建新用户
+        self.is_creating_user = False  # 标记是否正在创建新用户
         self.session = session
         self.client_ip = client_ip
         self.request_data = request_data

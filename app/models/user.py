@@ -1,10 +1,7 @@
-import uuid
 from typing import Literal
 
-import sqlmodel as sm
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import ENUM
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field
 
 from app.models.base_model import TableModel
@@ -29,20 +26,7 @@ class UserModel(TableModel, table=True):
     nickname: str = Field(min_length=1, max_length=255, sa_type=String(255, collation='zh-x-icu'))  # 昵称
     gender: GENDER_TYPE = Field(default='unknown', sa_type=GENDER_PG_TYPE)  # 性别
     avatar: str = Field(default='')  # 头像
-
-    async def is_admin(self, session: AsyncSession):
-        result = await session.scalar(
-            sm.select(sm.exists().where(AdminUserModel.user_id == self.id, AdminUserModel.exist_filter()))
-        )
-        return result
+    is_admin: bool = Field(default=False)  # 是否管理员
 
     def is_enabled(self):
         return self.state == 'enabled' and not self.is_archived()
-
-
-class AdminUserModel(TableModel, table=True):
-    """管理员表"""
-
-    __tablename__ = 'admin_user'
-
-    user_id: uuid.UUID = Field(foreign_key='users.id', unique=True, ondelete='RESTRICT')

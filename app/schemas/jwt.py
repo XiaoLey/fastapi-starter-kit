@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -9,8 +9,8 @@ from app.schemas.base import BaseWithExtrasSc
 
 class JWTSc(BaseWithExtrasSc):
     iss: str = Field(..., description='发行者')
-    aud: Optional[str] = Field(None, description='接收方')
-    sub: Optional[str] = Field(None, description='主题')
+    aud: str | None = Field(None, description='接收方')
+    sub: str | None = Field(None, description='主题')
     exp: datetime.datetime = Field(..., description='过期时间')
     nbf: datetime.datetime = Field(datetime.datetime.now(datetime.timezone.utc), description='在此时间之前无效')
     iat: datetime.datetime = Field(datetime.datetime.now(datetime.timezone.utc), description='签发时间')

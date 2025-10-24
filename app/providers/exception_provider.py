@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Optional
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
@@ -81,7 +80,7 @@ def _encode_headers(headers: dict) -> dict:
 
 
 def _handle_exception(request: Request, exc: StarletteHTTPException, add_info: any = None) -> JSONResponse:
-    headers: Optional[dict] = getattr(exc, 'headers', None)
+    headers: dict | None = getattr(exc, 'headers', None)
 
     if headers:
         if 'Access-Control-Expose-Headers' in headers:
