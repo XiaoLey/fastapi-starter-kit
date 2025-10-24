@@ -1,13 +1,11 @@
-from typing import Literal
-
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlmodel import Field
 
 from app.models.base_model import TableModel
+from app.types import GENDER_TYPE, USER_STATE_TYPE
 
-USER_STATE_TYPE = Literal['disabled', 'enabled']  # 性别
-GENDER_TYPE = Literal['male', 'female', 'unknown']  # 用户状态
+# 定义 PostgreSQL 枚举类型
 USER_STATE_PG_TYPE = ENUM(*USER_STATE_TYPE.__args__, name='user_state_type')
 GENDER_PG_TYPE = ENUM(*GENDER_TYPE.__args__, name='gender_type')
 
@@ -25,7 +23,7 @@ class UserModel(TableModel, table=True):
     )  # 用户状态
     nickname: str = Field(min_length=1, max_length=255, sa_type=String(255, collation='zh-x-icu'))  # 昵称
     gender: GENDER_TYPE = Field(default='unknown', sa_type=GENDER_PG_TYPE)  # 性别
-    avatar: str = Field(default='')  # 头像
+    avatar: str = Field(default='')  # 头像路径
     is_admin: bool = Field(default=False)  # 是否管理员
 
     def is_enabled(self):
