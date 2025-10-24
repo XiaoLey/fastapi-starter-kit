@@ -5,7 +5,7 @@ from app.support.types import GenderFormat
 
 
 class UserCreateRecvSc(BaseSc):
-    """创建用户的数据"""
+    """接收到的创建用户数据"""
 
     username: str = Field(description='用户名', example='admin')
     password: str | None = Field(None, description='密码', example='123456')
