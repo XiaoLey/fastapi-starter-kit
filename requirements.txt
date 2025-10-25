@@ -21,4 +21,4 @@ alembic-dddl
 asyncpg~=0.30.0
 httpx[http2]~=0.28.1
 httpx-socks[asyncio,trio]~=0.10.0
-tenacity~=9.1.2     # httpx 重试扩展库
+aiofiles~=25.1.0
