@@ -11,42 +11,47 @@ from pathlib import Path
 
 
 def normalize_module_path(path: str) -> str:
-    r"""将文件系统路径转换为Python模块路径
+    """将文件系统路径或模块路径统一转换为Python模块路径
 
     Args:
-        path: 文件系统路径（可能包含 / 或 \）
+        path: 文件系统路径（'path/to/module'）或模块路径（'path.to.module'）
 
     Returns:
         Python模块路径（使用点分隔）
     """
-    # 使用Path对象来规范化路径，然后转换为模块路径
+    # 如果已经是点分隔的模块路径，直接返回
+    if '/' not in path and '\\' not in path:
+        return path
+
+    # 否则，按照文件系统路径处理
     path_obj = Path(path)
-    # 将路径分隔符统一替换为点
     parts = []
     for part in path_obj.parts:
-        # 跳过相对路径标记
         if part not in ('.', '..'):
             parts.append(part)
     return '.'.join(parts)
 
 
-def import_all_models(directory: str, recursive: bool = False, exclude_filenames: list[str] = None):
-    """导入给定目录中的所有Python文件
+def import_all_models(module_path: str, recursive: bool = False, exclude_filenames: list[str] = None):
+    """导入给定模块路径中的所有Python文件
 
     Args:
-        directory: 包含Python文件的目录的路径
+        module_path: 模块路径（如 'app.models'）或文件系统路径（如 'app/models'）
         recursive: 是否递归导入子目录
-        exclude_filenames: 要排除的文件名
+        exclude_filenames: 要排除的文件名列表
     """
     if exclude_filenames is None:
         exclude_filenames = []
 
-    # 规范化目录路径
-    directory_path = Path(directory)
+    # 规范化为模块路径
+    normalized_path = normalize_module_path(module_path)
+
+    # 转换为文件系统路径以进行目录操作
+    directory_path = Path(module_path.replace('.', '/'))
 
     # 确保目录存在
     if not directory_path.exists():
-        raise ValueError(f'Directory {directory} does not exist')
+        raise ValueError(f'Directory {directory_path} does not exist')
 
     # 列出当前目录中的内容
     for entry in directory_path.iterdir():
@@ -62,120 +67,127 @@ def import_all_models(directory: str, recursive: bool = False, exclude_filenames
         ):
             # 生成模块的完整路径
             module_name = entry.stem  # 获取文件名（不含扩展名）
-            # 将文件系统路径转换为模块路径
-            module_base = normalize_module_path(directory)
-            module_path = f'{module_base}.{module_name}'
+            full_module_path = f'{normalized_path}.{module_name}'
 
             try:
-                importlib.import_module(module_path)
+                importlib.import_module(full_module_path)
             except ImportError as e:
-                logging.error(f'Failed to import {module_path}: {e}')
+                logging.error(f'Failed to import {full_module_path}: {e}')
                 raise
 
 
-def execute_function_in_all_modules(directory: str, function_name: str, *args, **kwargs):
-    """在给定目录中的所有Python文件中执行指定的函数
+def execute_function_in_all_modules(module_path: str, function_name: str, *args, **kwargs):
+    """在给定模块路径中的所有Python文件中执行指定的函数
 
     Args:
-        directory: 包含Python文件的目录的路径
-        function_name: 要执行的函数的名称
-        *args: 传递给函数的参数
+        module_path: 模块路径（如 'app.models'）或文件系统路径（如 'app/models'）
+        function_name: 要执行的函数名称
+        *args: 传递给函数的位置参数
         **kwargs: 传递给函数的关键字参数
     """
-    # 规范化目录路径
-    directory_path = Path(directory)
+    # 规范化为模块路径
+    normalized_path = normalize_module_path(module_path)
+
+    # 转换为文件系统路径以进行目录操作
+    directory_path = Path(module_path.replace('.', '/'))
 
     # 确保目录存在
     if not directory_path.exists():
-        raise ValueError(f'Directory {directory} does not exist')
+        raise ValueError(f'Directory {directory_path} does not exist')
 
     for entry in directory_path.iterdir():
         if entry.is_file() and entry.name != '__init__.py' and entry.suffix == '.py':
             module_name = entry.stem
-            module_base = normalize_module_path(directory)
-            module_path = f'{module_base}.{module_name}'
+            full_module_path = f'{normalized_path}.{module_name}'
 
             try:
-                module = importlib.import_module(module_path)
+                module = importlib.import_module(full_module_path)
                 if hasattr(module, function_name):
                     func = getattr(module, function_name)
                     func(*args, **kwargs)
             except ImportError as e:
-                logging.error(f'Failed to import {module_path}: {e}')
+                logging.error(f'Failed to import {full_module_path}: {e}')
 
 
-def get_attributes_from_all_modules(directory: str, attribute_name: str):
-    """从给定目录中的所有Python文件中获取指定的属性（函数或变量）
+def get_attributes_from_all_modules(module_path: str, attribute_name: str):
+    """从给定模块路径中的所有Python文件中获取指定的属性（函数或变量）
 
     Args:
-        directory: 包含Python文件的目录的路径
-        attribute_name: 要获取的属性的名称
+        module_path: 模块路径（如 'app.models'）或文件系统路径（如 'app/models'）
+        attribute_name: 要获取的属性名称
 
     Returns:
-        字典，其中的键是模块的路径，值是模块的属性
+        dict[str, Any]: 字典，键为模块路径，值为对应模块的属性
     """
     attributes = {}
-    # 规范化目录路径
-    directory_path = Path(directory)
+
+    # 规范化为模块路径
+    normalized_path = normalize_module_path(module_path)
+
+    # 转换为文件系统路径以进行目录操作
+    directory_path = Path(module_path.replace('.', '/'))
 
     # 确保目录存在
     if not directory_path.exists():
-        raise ValueError(f'Directory {directory} does not exist')
+        raise ValueError(f'Directory {directory_path} does not exist')
 
     for entry in directory_path.iterdir():
         if entry.is_file() and entry.name != '__init__.py' and entry.suffix == '.py':
             module_name = entry.stem
-            module_base = normalize_module_path(directory)
-            module_path = f'{module_base}.{module_name}'
+            full_module_path = f'{normalized_path}.{module_name}'
 
             try:
-                module = importlib.import_module(module_path)
+                module = importlib.import_module(full_module_path)
                 if hasattr(module, attribute_name):
-                    attributes[module_path] = getattr(module, attribute_name)
+                    attributes[full_module_path] = getattr(module, attribute_name)
             except ImportError as e:
-                logging.error(f'Failed to import {module_path}: {e}')
+                logging.error(f'Failed to import {full_module_path}: {e}')
 
     return attributes
 
 
 def get_classes_inheriting_from_base(
-    directory: str, base_class: type, exclude_file_name: list[str] = None, include_base_class: bool = False
+    module_path: str, base_class: type, exclude_filenames: list[str] = None, include_base_class: bool = False
 ) -> dict[str, dict[str, type]]:
-    """从给定目录中的所有Python文件中获取继承特定基类的类
+    """从给定模块路径中的所有Python文件中获取继承特定基类的类
 
     Args:
-        directory: 包含Python文件的目录路径
+        module_path: 模块路径（如 'app.models'）或文件系统路径（如 'app/models'）
         base_class: 要匹配的基类
-        exclude_file_name: 要排除的文件名
-        include_base_class: 是否包括基类
+        exclude_filenames: 要排除的文件名列表
+        include_base_class: 是否包括基类本身
 
     Returns:
-        字典，其中键是模块路径，值是继承指定基类的类的字典
+        dict[str, dict[str, type]]: 嵌套字典，外层键为模块路径，
+            内层键为类名，值为继承指定基类的类对象
     """
-    if exclude_file_name is None:
-        exclude_file_name = []
+    if exclude_filenames is None:
+        exclude_filenames = []
 
     class_dict = {}
-    # 规范化目录路径
-    directory_path = Path(directory)
+
+    # 规范化为模块路径
+    normalized_path = normalize_module_path(module_path)
+
+    # 转换为文件系统路径以进行目录操作
+    directory_path = Path(module_path.replace('.', '/'))
 
     # 确保目录存在
     if not directory_path.exists():
-        raise ValueError(f'Directory {directory} does not exist')
+        raise ValueError(f'Directory {directory_path} does not exist')
 
     for entry in directory_path.iterdir():
         if entry.is_file() and entry.name != '__init__.py' and entry.suffix == '.py':
-            if entry.name in exclude_file_name:
+            if entry.name in exclude_filenames:
                 continue
 
             module_name = entry.stem
-            module_base = normalize_module_path(directory)
-            module_path = f'{module_base}.{module_name}'
+            full_module_path = f'{normalized_path}.{module_name}'
 
             try:
-                module = importlib.import_module(module_path)
+                module = importlib.import_module(full_module_path)
             except ImportError as e:
-                logging.error(f'Failed to import {module_path}: {e}')
+                logging.error(f'Failed to import {full_module_path}: {e}')
                 continue
 
             classes = inspect.getmembers(module, inspect.isclass)
@@ -195,6 +207,6 @@ def get_classes_inheriting_from_base(
                     continue
 
             if inheriting_classes:
-                class_dict[module_path] = inheriting_classes
+                class_dict[full_module_path] = inheriting_classes
 
     return class_dict
