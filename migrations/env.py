@@ -1,8 +1,7 @@
-import platform
-
-
 def setup_encoding_patch():
     """设置UTF-8编码修补，仅在Windows上生效"""
+    import platform
+
     if platform.system() == 'Windows':
         import builtins
 
