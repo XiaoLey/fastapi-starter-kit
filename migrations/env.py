@@ -79,7 +79,7 @@ util_entities: list = BaseModel.get_init_sql_alembic_ddls()
 models_temp: list[BaseModel] = []
 
 # 获取所有继承自ViewModel的类
-models_dict = get_classes_inheriting_from_base('app/models', ViewModel, exclude_file_name=['base_model.py'])
+models_dict = get_classes_inheriting_from_base('app/models', ViewModel, exclude_filenames=['base_model.py'])
 # 平铺类型
 for module, classes in models_dict.items():
     models_temp.extend(classes.values())  # 把每个模块中的类添加到数组中
@@ -88,7 +88,7 @@ for model in models_temp:
     util_entities += model.get_ext_alembic_ddls()
 
 # 获取所有继承自TableModel的类
-models_dict = get_classes_inheriting_from_base('app/models', TableModel, exclude_file_name=['base_model.py'])
+models_dict = get_classes_inheriting_from_base('app/models', TableModel, exclude_filenames=['base_model.py'])
 # 平铺类型
 for module, classes in models_dict.items():
     models_temp.extend(classes.values())  # 把每个模块中的类添加到数组中
