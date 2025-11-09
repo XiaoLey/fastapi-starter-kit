@@ -7,7 +7,6 @@
 import random
 import string
 
-import sqlmodel as sm
 from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +38,8 @@ class PasswordGrant:
     async def respond(self):
         user = await UserModel.get_one(
             self.session,
-            sm.or_(UserModel.username == self.request_data.username, UserModel.cellphone == self.request_data.username),
+            ((UserModel.username == self.request_data.username) | (UserModel.cellphone == self.request_data.username))
+            & UserModel.exist_filter(),
         )
         if not user:
             raise UserNotFoundError()
@@ -71,7 +71,7 @@ class CellphoneGrant:
         if not await verification_code_service.verify_code(cellphone, code):
             raise InvalidCellphoneCodeError()
 
-        user = await UserModel.get_one(self.session, UserModel.cellphone == cellphone)
+        user = await UserModel.get_one(self.session, (UserModel.cellphone == cellphone) & UserModel.exist_filter())
         while not user:
             try:
                 # 创建一个用户名（随机 10 位数字或字母组合）

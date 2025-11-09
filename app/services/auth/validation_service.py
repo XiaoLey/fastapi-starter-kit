@@ -35,7 +35,9 @@ async def validate_username_availability(session: AsyncSession, username: str, e
     if not username:
         raise UsernameEmptyError()
 
-    query = sm.select(sm.func.count()).where((UserModel.username == username) | (UserModel.cellphone == username))
+    query = sm.select(sm.func.count()).where(
+        ((UserModel.username == username) | (UserModel.cellphone == username)) & UserModel.exist_filter()
+    )
     if exclude_id:
         query = query.where(UserModel.id != exclude_id)
     result = await session.execute(query)
@@ -62,7 +64,7 @@ async def validate_cellphone_availability(session: AsyncSession, cellphone: str,
     if not is_chinese_cellphone(cellphone):
         raise InvalidCellphoneError()
 
-    query = sm.select(sm.func.count()).where(UserModel.cellphone == cellphone)
+    query = sm.select(sm.func.count()).where((UserModel.cellphone == cellphone) & UserModel.exist_filter())
     if exclude_id:
         query = query.where(UserModel.id != exclude_id)
     result = await session.execute(query)
