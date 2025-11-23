@@ -14,6 +14,7 @@ from app.exceptions import (
     InvalidCellphoneCodeError,
     InvalidPasswordError,
     InvalidUserError,
+    InvalidVerificationCodeError,
     UsernameAlreadyExistsError,
     UserNotFoundError,
 )
@@ -68,7 +69,9 @@ class CellphoneGrant:
         cellphone = self.request_data.cellphone
         code = self.request_data.verification_code
 
-        if not await verification_code_service.verify_code(cellphone, code):
+        try:
+            await verification_code_service.verify_code(cellphone, code)
+        except InvalidVerificationCodeError:
             raise InvalidCellphoneCodeError()
 
         user = await UserModel.get_one(self.session, (UserModel.cellphone == cellphone) & UserModel.exist_filter())

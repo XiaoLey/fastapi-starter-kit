@@ -4,7 +4,7 @@
 # 提供验证码的生成、存储和验证功能，支持 Redis 缓存和开发环境超级验证码。
 #
 
-from app.exceptions import InvalidCellphoneCodeError
+from app.exceptions import InvalidVerificationCodeError
 from app.providers.database_provider import redis_client
 from app.support.string_helper import numeric_random
 from config.config import settings
@@ -40,7 +40,7 @@ async def verify_code(key, verification_code, delete_when_passed=True):
     passed = code and code == verification_code
 
     if not passed:
-        raise InvalidCellphoneCodeError()
+        raise InvalidVerificationCodeError()
 
     if delete_when_passed:
         await redis_client.delete(key)
