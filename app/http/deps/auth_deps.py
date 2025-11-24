@@ -52,7 +52,9 @@ async def get_auth_user_dirty(
     request_or_ws: HTTPConnection, session: AsyncSession = Depends(get_db)
 ) -> UserModel | None:
     try:
-        token: str = await oauth2_token(request_or_ws)
+        token = await oauth2_token(request_or_ws)
+        if token is None:
+            return None
     except HTTPException as e:
         return None
 
