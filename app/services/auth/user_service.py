@@ -7,11 +7,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import UserModel
-from app.schemas.user import UserCreateRecvSc
+from app.schemas.user import UserCreateReqSc
 from app.support import password_helper
 
 
-async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreateRecvSc) -> UserModel:
+async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreateReqSc) -> UserModel:
     """创建用户"""
     if password := new_user.password:
         password = password_helper.get_password_hash(password)
