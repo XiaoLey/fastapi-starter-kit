@@ -1,5 +1,5 @@
 import redis.asyncio as redis
-import sqlmodel as sm
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.providers.sqlalchemy_provider  # noqa: F401
@@ -22,7 +22,7 @@ async_session_factory = async_sessionmaker(
 
 
 async def set_session_time_zone(session: AsyncSession, time_zone: str = 'Asia/Shanghai') -> None:
-    await session.execute(sm.text(f"SET TIME ZONE '{time_zone}'"))
+    await session.execute(sa.text(f"SET TIME ZONE '{time_zone}'"))
 
 
 # redis

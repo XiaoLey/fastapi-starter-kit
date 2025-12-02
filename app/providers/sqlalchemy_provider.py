@@ -1,4 +1,4 @@
-import sqlmodel as sm
+import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.orm import Session, with_loader_criteria
 from sqlalchemy.orm.session import ORMExecuteState
@@ -30,7 +30,7 @@ def add_soft_delete_filter(execute_state: ORMExecuteState):
                 # 获取原始模型类，处理多重别名
                 original_class = entity_class
                 while isinstance(original_class, AliasedClass):
-                    original_class = sm.inspect(original_class)._target
+                    original_class = sa.inspect(original_class)._target
 
                 # 检查该实体或其原始模型是否已经处理过
                 if original_class not in processed_entities:
@@ -38,7 +38,7 @@ def add_soft_delete_filter(execute_state: ORMExecuteState):
                     execute_state.statement = execute_state.statement.options(
                         with_loader_criteria(
                             original_class,
-                            lambda cls: (cls.deleted_at == None) | (cls.deleted_at > sm.func.now()),
+                            lambda cls: (cls.deleted_at == None) | (cls.deleted_at > sa.func.now()),
                             include_aliases=True,  # 处理别名的情况
                         )
                     )

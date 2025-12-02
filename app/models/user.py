@@ -1,6 +1,6 @@
-from sqlalchemy import String
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ENUM
-from sqlmodel import Field
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base_model import TableModel
 from app.types import GENDER_TYPE, USER_STATE_TYPE
@@ -10,21 +10,21 @@ USER_STATE_PG_TYPE = ENUM(*USER_STATE_TYPE.__args__, name='user_state_type')
 GENDER_PG_TYPE = ENUM(*GENDER_TYPE.__args__, name='gender_type')
 
 
-class UserModel(TableModel, table=True):
+class UserModel(TableModel):
     """用户表"""
 
     __tablename__ = 'users'
 
-    username: str = Field(max_length=255, unique=True)  # 用户名
-    password: str | None = Field(max_length=255)  # 密码
-    cellphone: str = Field(default=None, max_length=45, unique=True)  # 手机号
-    state: USER_STATE_TYPE = Field(
-        default='enabled', sa_type=USER_STATE_PG_TYPE, sa_column_kwargs={'server_default': 'enabled'}
+    username: Mapped[str] = mapped_column(sa.String(255), unique=True)  # 用户名
+    password: Mapped[str | None] = mapped_column(sa.String(255))  # 密码
+    cellphone: Mapped[str | None] = mapped_column(sa.String(45), unique=True, default=None)  # 手机号
+    state: Mapped[USER_STATE_TYPE] = mapped_column(
+        USER_STATE_PG_TYPE, default='enabled', server_default='enabled'
     )  # 用户状态
-    nickname: str = Field(min_length=1, max_length=255, sa_type=String(255, collation='zh-x-icu'))  # 昵称
-    gender: GENDER_TYPE = Field(default='unknown', sa_type=GENDER_PG_TYPE)  # 性别
-    avatar: str = Field(default='')  # 头像路径
-    is_admin: bool = Field(default=False)  # 是否管理员
+    nickname: Mapped[str] = mapped_column(sa.String(255, collation='zh-x-icu'))
+    gender: Mapped[GENDER_TYPE] = mapped_column(GENDER_PG_TYPE, default='unknown')  # 性别
+    avatar: Mapped[str] = mapped_column(sa.String, default='')  # 头像路径
+    is_admin: Mapped[bool] = mapped_column(sa.Boolean, default=False)  # 是否管理员
 
-    def is_enabled(self):
+    def is_enabled(self) -> bool:
         return self.state == 'enabled' and not self.is_archived()

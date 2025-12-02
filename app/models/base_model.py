@@ -2,12 +2,11 @@ import datetime
 import uuid
 from pathlib import Path
 
-import sqlmodel as sm
+import sqlalchemy as sa
 from alembic_dddl import DDL as alembic_DDL
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import Field, SQLModel
-from sqlmodel.main import SQLModelConfig
+from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_column
 
 from config.database import settings as db_settings
 
@@ -18,15 +17,9 @@ def load_sql(filename: str) -> str:
     return file_path.read_text(encoding='utf-8')
 
 
-class BaseModel(SQLModel):
-    model_config = SQLModelConfig(
-        # 参考：https://docs.pydantic.dev/latest/api/config/
-        extra='ignore',  # 忽略未知字段
-        validate_assignment=True,  # 允许在对象更改时进行数据校验
-        from_attributes=True,  # 允许使用类属性填充（而不是只能用字典填充，旧名字叫做 orm_mode）
-        populate_by_name=True,  # 允许通过字段名来填充（而不是只能通过别名来填充）
-    )
-
+# MappedAsDataclass: 使得模型类可以像 dataclass 一样使用
+# DeclarativeBase: SQLAlchemy 的声明性基础类
+class Base(MappedAsDataclass, DeclarativeBase):
     @classmethod
     def get_init_sql_alembic_ddls(cls):
         """获取表创建前要执行的sql语句"""
@@ -95,35 +88,34 @@ class BaseModel(SQLModel):
 
     @classmethod
     def _columns(cls):
-        return list(cls.model_fields.keys())
+        return [getattr(cls, col.name) for col in cls.__table__.columns]
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
-class ViewModel(BaseModel):
+class ViewModel(Base):
+    __abstract__ = True
     __mapper_args__ = {'eager_defaults': True}
 
 
-class TableModel(BaseModel):
+class TableModel(Base):
+    __abstract__ = True
     __mapper_args__ = {'eager_defaults': True}
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        primary_key=True,
-        unique=True,
-        sa_column_kwargs={'server_default': sm.func.uuid_generate_v4()},
+    # 对于数据库自动生成的字段，必须加上 init=False，否则创建对象时会提示缺少参数
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.UUID, primary_key=True, default=uuid.uuid4, server_default=sa.func.uuid_generate_v4(), init=False
     )
-    created_at: datetime.datetime | None = Field(
-        default=None,
-        nullable=False,
-        sa_type=TIMESTAMP(timezone=True),
-        sa_column_kwargs={'server_default': sm.func.now()},
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=None, server_default=sa.func.now(), init=False
     )
-    updated_at: datetime.datetime | None = Field(
-        default=None,
-        nullable=False,
-        sa_type=TIMESTAMP(timezone=True),
-        sa_column_kwargs={'server_default': sm.func.now(), 'server_onupdate': sm.func.now()},
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=None, server_default=sa.func.now(), onupdate=sa.func.now(), init=False
     )
-    deleted_at: datetime.datetime | None = Field(default=None, sa_type=TIMESTAMP(timezone=True))
+    deleted_at: Mapped[datetime.datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), default=None, nullable=True, init=False
+    )
 
     @classmethod
     async def get(cls, session: AsyncSession, pk: int):
@@ -131,11 +123,11 @@ class TableModel(BaseModel):
 
     @classmethod
     async def get_one(cls, session: AsyncSession, filter):
-        return await session.scalar(sm.select(cls).where(filter))
+        return await session.scalar(sa.select(cls).where(filter))
 
     @classmethod
     async def soft_delete_by_id(cls, session: AsyncSession, pk: int):
-        await session.execute(sm.update(cls).where(cls.id == pk).values(deleted_at=datetime.now(datetime.timezone.utc)))
+        await session.execute(sa.update(cls).where(cls.id == pk).values(deleted_at=datetime.now(datetime.timezone.utc)))
 
     @classmethod
     def get_ext_alembic_ddls(cls):
@@ -158,7 +150,7 @@ class TableModel(BaseModel):
 
     @classmethod
     def exist_filter(cls):
-        return sm.or_(cls.deleted_at.is_(None), (cls.deleted_at > sm.func.now()))
+        return sa.or_(cls.deleted_at.is_(None), (cls.deleted_at > sa.func.now()))
 
     async def create(self, session: AsyncSession):
         session.add(self)

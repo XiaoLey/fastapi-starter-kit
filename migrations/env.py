@@ -42,7 +42,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.models.base_model import BaseModel, TableModel, ViewModel
+from app.models.base_model import Base, TableModel, ViewModel
 from app.support.modules_helper import get_classes_inheriting_from_base, import_all_models
 from config.database import settings as db_settings
 
@@ -63,8 +63,8 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 # from myapp import mymodel
-# target_metadata = mymodel.BaseModel.metadata
-target_metadata = BaseModel.metadata
+# target_metadata = mymodel.Base.metadata
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -75,8 +75,8 @@ target_metadata = BaseModel.metadata
 # ---------------------------------------------------------------
 # 获取util实体
 
-util_entities: list = BaseModel.get_init_sql_alembic_ddls()
-models_temp: list[BaseModel] = []
+util_entities: list = Base.get_init_sql_alembic_ddls()
+models_temp: list[Base] = []
 
 # 获取所有继承自ViewModel的类
 models_dict = get_classes_inheriting_from_base('app/models', ViewModel, exclude_file_name=['base_model.py'])

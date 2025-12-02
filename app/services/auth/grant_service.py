@@ -7,7 +7,7 @@
 import random
 import string
 
-import sqlmodel as sm
+import sqlalchemy as sa
 from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,7 @@ class PasswordGrant:
     async def respond(self):
         user = await UserModel.get_one(
             self.session,
-            sm.or_(UserModel.username == self.request_data.username, UserModel.cellphone == self.request_data.username),
+            sa.or_(UserModel.username == self.request_data.username, UserModel.cellphone == self.request_data.username),
         )
         if not user:
             raise UserNotFoundError()

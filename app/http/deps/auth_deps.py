@@ -4,7 +4,7 @@
 
 from uuid import UUID
 
-import sqlmodel as sm
+import sqlalchemy as sa
 from fastapi import Depends, HTTPException, Request, WebSocket
 from fastapi.requests import HTTPConnection
 from fastapi.security import OAuth2PasswordBearer
@@ -37,7 +37,7 @@ oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API
 async def get_auth_user(token: str = Depends(oauth2_token), session: AsyncSession = Depends(get_db)) -> UserModel:
     payload = await validate_token(token)
     user_id = UUID(payload.sub)
-    user = (await session.execute(sm.select(UserModel).where(UserModel.id == user_id))).scalar()
+    user = (await session.execute(sa.select(UserModel).where(UserModel.id == user_id))).scalar()
 
     if not user:
         raise AuthenticationError()
@@ -60,5 +60,5 @@ async def get_auth_user_dirty(
         return None
 
     user_id = UUID(payload.sub)
-    user = (await session.execute(sm.select(UserModel).where(UserModel.id == user_id))).scalar()
+    user = (await session.execute(sa.select(UserModel).where(UserModel.id == user_id))).scalar()
     return user

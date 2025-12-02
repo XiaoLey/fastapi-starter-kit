@@ -1,15 +1,15 @@
 """init
 
 Revision ID: 883992f5b42f
-Revises: 
+Revises:
 Create Date: 2025-10-24 14:38:23.383584
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
 import sqlalchemy_utils
-import sqlmodel.sql.sqltypes
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
@@ -31,23 +31,29 @@ def upgrade() -> None:
     op.run_ddl_script('2025_10_24_1438_ext-fuzzystrmatch_883992f5b42f.sql')
     op.run_ddl_script('2025_10_24_1438_tgr_func-update_updated_at_column_883992f5b42f.sql')
 
-    op.create_table('users',
-    sa.Column('id', sa.Uuid(), server_default=sa.text('uuid_generate_v4()'), nullable=False),
-    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
-    sa.Column('username', sqlmodel.sql.sqltypes.AutoString(length=255), nullable=False),
-    sa.Column('password', sqlmodel.sql.sqltypes.AutoString(length=255), nullable=True),
-    sa.Column('cellphone', sqlmodel.sql.sqltypes.AutoString(length=45), nullable=False),
-    sa.Column('state', postgresql.ENUM('disabled', 'enabled', name='user_state_type'), server_default='enabled', nullable=False),
-    sa.Column('nickname', sa.String(length=255, collation='zh-x-icu'), nullable=False),
-    sa.Column('gender', postgresql.ENUM('male', 'female', 'unknown', name='gender_type'), nullable=False),
-    sa.Column('avatar', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('is_admin', sa.Boolean(), nullable=False),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('cellphone'),
-    sa.UniqueConstraint('id'),
-    sa.UniqueConstraint('username')
+    op.create_table(
+        'users',
+        sa.Column('id', sa.Uuid(), server_default=sa.text('uuid_generate_v4()'), nullable=False),
+        sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+        sa.Column('username', sa.String(length=255), nullable=False),
+        sa.Column('password', sa.String(length=255), nullable=True),
+        sa.Column('cellphone', sa.String(length=45), nullable=False),
+        sa.Column(
+            'state',
+            postgresql.ENUM('disabled', 'enabled', name='user_state_type'),
+            server_default='enabled',
+            nullable=False,
+        ),
+        sa.Column('nickname', sa.String(length=255, collation='zh-x-icu'), nullable=False),
+        sa.Column('gender', postgresql.ENUM('male', 'female', 'unknown', name='gender_type'), nullable=False),
+        sa.Column('avatar', sa.String(), nullable=False),
+        sa.Column('is_admin', sa.Boolean(), nullable=False),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('cellphone'),
+        sa.UniqueConstraint('id'),
+        sa.UniqueConstraint('username'),
     )
 
     op.run_ddl_script('2025_10_24_1438_tgr-update_updated_at_column_users_883992f5b42f.sql')

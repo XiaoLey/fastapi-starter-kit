@@ -15,7 +15,6 @@ python-magic~=0.4.27
 pillow~=11.2.1
 SQLAlchemy
 SQLAlchemy-Utils
-SQLModel
 alembic
 alembic-dddl
 asyncpg~=0.30.0
