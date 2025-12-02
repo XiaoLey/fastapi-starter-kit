@@ -111,10 +111,10 @@ class TableModel(Base):
         TIMESTAMP(timezone=True), default=None, server_default=sa.func.now(), init=False
     )
     updated_at: Mapped[datetime.datetime] = mapped_column(
-        TIMESTAMP(timezone=True), default=None, server_default=sa.func.now(), onupdate=sa.func.now(), init=False
+        TIMESTAMP(timezone=True), default=None, server_default=sa.func.now(), server_onupdate=sa.func.now(), init=False
     )
     deleted_at: Mapped[datetime.datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), default=None, nullable=True, init=False
+        TIMESTAMP(timezone=True), default=None, nullable=True, server_default=sa.text('NULL'), init=False
     )
 
     @classmethod
