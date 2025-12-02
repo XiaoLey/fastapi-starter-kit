@@ -7,7 +7,6 @@
 import random
 import string
 
-import sqlalchemy as sa
 from pydantic import ConfigDict, validate_call
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,12 +14,13 @@ from app.exceptions import (
     InvalidCellphoneCodeError,
     InvalidPasswordError,
     InvalidUserError,
+    InvalidVerificationCodeError,
     UsernameAlreadyExistsError,
     UserNotFoundError,
 )
 from app.models.user import UserModel
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
-from app.schemas.user import UserCreateRecvSc
+from app.schemas.user import UserCreateReqSc
 from app.services.auth import verification_code_service
 from app.services.auth.token_service import create_token_response_from_user
 from app.services.auth.user_service import create_user
@@ -39,7 +39,8 @@ class PasswordGrant:
     async def respond(self):
         user = await UserModel.get_one(
             self.session,
-            sa.or_(UserModel.username == self.request_data.username, UserModel.cellphone == self.request_data.username),
+            ((UserModel.username == self.request_data.username) | (UserModel.cellphone == self.request_data.username))
+            & UserModel.exist_filter(),
         )
         if not user:
             raise UserNotFoundError()
@@ -68,17 +69,19 @@ class CellphoneGrant:
         cellphone = self.request_data.cellphone
         code = self.request_data.verification_code
 
-        if not await verification_code_service.verify_code(cellphone, code):
+        try:
+            await verification_code_service.verify_code(cellphone, code)
+        except InvalidVerificationCodeError:
             raise InvalidCellphoneCodeError()
 
-        user = await UserModel.get_one(self.session, UserModel.cellphone == cellphone)
+        user = await UserModel.get_one(self.session, (UserModel.cellphone == cellphone) & UserModel.exist_filter())
         while not user:
             try:
                 # 创建一个用户名（随机 10 位数字或字母组合）
                 username = ''.join(random.choices(string.digits + string.ascii_lowercase, k=10))
 
                 # 创建用户
-                new_user_info = UserCreateRecvSc(
+                new_user_info = UserCreateReqSc(
                     username=username,
                     password=None,
                     nickname=username,

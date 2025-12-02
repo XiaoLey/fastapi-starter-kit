@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.http.deps import database_deps, request_deps
 from app.schemas.common import BoolSc
-from app.schemas.user import UserCreateRecvSc
+from app.schemas.user import UserCreateReqSc
 from app.services.auth import validation_service, verification_code_service
 from app.services.auth.user_service import create_user
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix='/users', tags=['用户'])
 
 @router.post('', response_model=BoolSc, name='注册新用户')
 async def register_user(
-    user_create: UserCreateRecvSc,
+    user_create: UserCreateReqSc,
     client_ip: Annotated[str, Depends(request_deps.get_request_ip)],
     session: Annotated[AsyncSession, Depends(database_deps.get_db)],
 ):

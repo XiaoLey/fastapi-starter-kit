@@ -32,6 +32,7 @@ class ErrorCode:
 
     INVALID_USER_ERROR = 'INVALID_USER_ERROR'  # 无效用户
     INVALID_PASSWORD_ERROR = 'INVALID_PASSWORD_ERROR'  # 密码不正确
+    INVALID_VERIFICATION_CODE_ERROR = 'INVALID_VERIFICATION_CODE_ERROR'  # 无效验证码
 
     USERNAME_ALREADY_EXISTS_ERROR = 'USERNAME_ALREADY_EXISTS_ERROR'  # 用户名已存在
     CELLPHONE_ALREADY_EXISTS_ERROR = 'CELLPHONE_ALREADY_EXISTS_ERROR'  # 手机号已存在
@@ -121,6 +122,11 @@ class InvalidUserError(HTTPException):
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.INVALID_PASSWORD_ERROR)
 class InvalidPasswordError(HTTPException):
     """密码不正确"""
+
+
+@exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.INVALID_VERIFICATION_CODE_ERROR)
+class InvalidVerificationCodeError(HTTPException):
+    """无效验证码"""
 
 
 @exception_decorator(HTTP_422_UNPROCESSABLE_ENTITY, ErrorCode.USERNAME_ALREADY_EXISTS_ERROR)

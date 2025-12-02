@@ -4,8 +4,8 @@ from app.schemas.base import BaseSc
 from app.types import GENDER_TYPE
 
 
-class UserCreateRecvSc(BaseSc):
-    """接收到的创建用户数据"""
+class UserCreateReqSc(BaseSc):
+    """用户创建请求模型"""
 
     username: str = Field(description='用户名', example='admin')
     password: str | None = Field(None, description='密码', example='123456')
