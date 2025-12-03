@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic_dddl import DDL as alembic_DDL
 from sqlalchemy.dialects.postgresql import TIMESTAMP
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_column
 
 from config.database import settings as db_settings
@@ -19,7 +19,7 @@ def load_sql(filename: str) -> str:
 
 # MappedAsDataclass: 使得模型类可以像 dataclass 一样使用
 # DeclarativeBase: SQLAlchemy 的声明性基础类
-class Base(MappedAsDataclass, DeclarativeBase):
+class Base(AsyncAttrs, MappedAsDataclass, DeclarativeBase):
     @classmethod
     def get_init_sql_alembic_ddls(cls):
         """获取表创建前要执行的sql语句"""
