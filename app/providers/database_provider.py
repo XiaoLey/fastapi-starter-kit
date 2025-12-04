@@ -32,5 +32,6 @@ redis_pool = redis.ConnectionPool(
     db=redis_settings.REDIS_DB,
     password=redis_settings.REDIS_PASSWORD,
     decode_responses=True,
+    health_check_interval=30,  # 每30秒检查一次连接健康状态，防止使用失效连接
 )
 redis_client = redis.Redis(connection_pool=redis_pool)
