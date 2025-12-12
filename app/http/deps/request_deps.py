@@ -16,7 +16,12 @@ async def get_request_ip(request_or_ws: HTTPConnection) -> str:
 async def get_timezone(request_or_ws: HTTPConnection) -> str:
     """请求头中获取时区"""
     if isinstance(request_or_ws, Request):
-        return request_or_ws.headers.get('Time-Zone', 'Asia/Shanghai')
+        if 'Time-Zone' in request_or_ws.headers:
+            return request_or_ws.headers['Time-Zone']
+        elif 'X-Time-Zone' in request_or_ws.headers:
+            return request_or_ws.headers['X-Time-Zone']
+        else:
+            return 'Asia/Shanghai'
     elif isinstance(request_or_ws, WebSocket):
         return request_or_ws.query_params.get('time-zone', 'Asia/Shanghai')
     else:
