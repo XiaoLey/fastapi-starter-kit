@@ -149,7 +149,7 @@ class TableModel(Base):
         return sa.or_(cls.deleted_at.is_(None), (cls.deleted_at > sa.func.now()))
 
     def is_archived(self):
-        return self.deleted_at is not None and self.deleted_at <= datetime.now(datetime.timezone.utc)
+        return self.deleted_at is not None and self.deleted_at <= datetime.datetime.now(datetime.timezone.utc)
 
-    async def delete(self):
-        self.deleted_at = datetime.now(datetime.timezone.utc)
+    def delete(self):
+        self.deleted_at = datetime.datetime.now(datetime.timezone.utc)
