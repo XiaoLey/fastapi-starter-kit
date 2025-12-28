@@ -17,9 +17,12 @@ async def create_user(session: AsyncSession, client_ip: str, new_user: UserCreat
         password = password_helper.get_password_hash(password)
 
     # 创建用户
-    user = await UserModel(
+    user = UserModel(
         **new_user.model_dump(exclude=['password'] + [field for field, value in new_user if value is None]),
         password=password,
-    ).create(session)
+    )
+
+    session.add(user)
+    await session.flush()
 
     return user

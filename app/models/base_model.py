@@ -152,15 +152,8 @@ class TableModel(Base):
     def exist_filter(cls):
         return sa.or_(cls.deleted_at.is_(None), (cls.deleted_at > sa.func.now()))
 
-    async def create(self, session: AsyncSession):
-        session.add(self)
-        await session.flush()
-        return self
-
     def is_archived(self):
         return self.deleted_at is not None and self.deleted_at <= datetime.now(datetime.timezone.utc)
 
-    async def soft_delete(self, session):
+    async def delete(self):
         self.deleted_at = datetime.now(datetime.timezone.utc)
-        session.add(self)
-        await session.flush()
