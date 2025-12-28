@@ -126,10 +126,6 @@ class TableModel(Base):
         return await session.scalar(sa.select(cls).where(filter))
 
     @classmethod
-    async def soft_delete_by_id(cls, session: AsyncSession, pk: int):
-        await session.execute(sa.update(cls).where(cls.id == pk).values(deleted_at=datetime.now(datetime.timezone.utc)))
-
-    @classmethod
     def get_ext_alembic_ddls(cls):
         down_sql = f'DROP TRIGGER IF EXISTS tgr_update_updated_at_column ON {cls.__tablename__};'
         util_schema_list = super().get_ext_alembic_ddls() + [
