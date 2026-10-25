@@ -1,5 +1,3 @@
-from typing import Union
-
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -13,7 +11,7 @@ def alter_enum_type(
     old_enum_values: list[str],
     new_enum_values: list[str],
     value_mapping: dict[str, str],
-    default_value: Union[str, None],
+    default_value: str | None,
     nullable: bool = False,
 ) -> None:
     """
@@ -101,10 +99,10 @@ def alter_enum_type(
 def alter_column_type(
     table_name: str,
     column_name: str,
-    old_type: sa.types.TypeEngine,
-    new_type: sa.types.TypeEngine,
-    value_conversion: Union[str, None] = None,
-    default_value: Union[str, None] = None,
+    old_type: sa.types.TypeEngine[object],
+    new_type: sa.types.TypeEngine[object],
+    value_conversion: str | None = None,
+    default_value: str | None = None,
     nullable: bool = False,
 ) -> None:
     """

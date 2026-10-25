@@ -1,19 +1,20 @@
-#
-# 数据库依赖
-#
+from collections.abc import AsyncIterator
+from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import HTTPConnection
 
 from app.http.deps.request_deps import get_timezone
-from app.providers import database_provider as db
+from app.http.deps.runtime_deps import get_resources
 
 
-async def get_db(time_zone: str = Depends(get_timezone)):
-    try:
-        session: AsyncSession = db.async_session_factory()
-        await db.set_session_time_zone(session, time_zone)
+async def get_db(
+    connection: HTTPConnection, time_zone: Annotated[str, Depends(get_timezone)]
+) -> AsyncIterator[AsyncSession]:
+    """创建请求会话；业务负责提交，未完成事务在退出时回滚"""
+    if connection.scope['type'] != 'http':
+        raise RuntimeError('WebSocket operations require short-lived sessions')
 
+    async with get_resources(connection).session_factory(info={'time_zone': time_zone}) as session:
         yield session
-    finally:
-        await session.close()

@@ -1,26 +1,67 @@
-import datetime
-import logging
+import asyncio
+from collections.abc import Awaitable, Callable, Coroutine
+from functools import wraps
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-# from apscheduler.triggers.cron import CronTrigger
-# from apscheduler.triggers.date import DateTrigger
+from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN, SchedulerEvent  # pyright: ignore[reportMissingTypeStubs]
+from apscheduler.schedulers.asyncio import AsyncIOScheduler  # pyright: ignore[reportMissingTypeStubs]
 
 
-def create_asyncio_scheduler() -> AsyncIOScheduler:
-    logging.info('AsyncIOScheduler initializing')
-    scheduler: AsyncIOScheduler = AsyncIOScheduler()
-    register_asyncio_jobs(scheduler)
+class JobRunner:
+    """跟踪协作异步作业；不支持强制终止同步线程"""
+
+    def __init__(self) -> None:
+        self.tasks: set[asyncio.Task[object]] = set()
+
+    def wrap[**P, R](self, job: Callable[P, Awaitable[R]]) -> Callable[P, Coroutine[object, object, R]]:
+        @wraps(job)
+        async def run(*args: P.args, **kwargs: P.kwargs) -> R:
+            task = asyncio.current_task()
+            if task is None:
+                raise RuntimeError('Job requires an asyncio task')
+            self.tasks.add(task)
+            try:
+                return await job(*args, **kwargs)
+            finally:
+                self.tasks.discard(task)
+
+        return run
+
+    async def drain(self, grace_seconds: float = 30) -> None:
+        # 允许已投递到事件循环的作业先登记，再冻结本次等待集合
+        await asyncio.sleep(0)
+        if not self.tasks:
+            return
+        _, pending = await asyncio.wait(tuple(self.tasks), timeout=grace_seconds)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+def register_asyncio_jobs(scheduler: AsyncIOScheduler, runner: JobRunner) -> None:
+    """集中注册业务协作异步作业；模板不预置业务任务"""
+
+
+def create_asyncio_scheduler(runner: JobRunner) -> AsyncIOScheduler:
+    scheduler = AsyncIOScheduler(event_loop=asyncio.get_running_loop())
+    register_asyncio_jobs(scheduler, runner)
     return scheduler
 
 
-def register_asyncio_jobs(scheduler: AsyncIOScheduler):
-    """注册异步任务"""
-    first_run_time = datetime.datetime.now() + datetime.timedelta(seconds=10)  # 延迟 10 秒启动
+async def stop_scheduler(scheduler: AsyncIOScheduler, runner: JobRunner, grace_seconds: float = 30) -> None:
+    if not scheduler.running:
+        return
+    scheduler.pause()
+    await runner.drain(grace_seconds)
 
-    # 测试
-    # scheduler.add_job(
-    #     lambda: logging.info("AsyncIOScheduler job test"),
-    #     trigger=CronTrigger(second="*/5"),  # 每 5 秒执行一次
-    #     next_run_time=first_run_time,
-    # )
+    # shutdown是普通方法，通过公开关闭事件确认真正完成
+    stopped = asyncio.Event()
+
+    def on_shutdown(event: SchedulerEvent) -> None:
+        stopped.set()
+
+    scheduler.add_listener(on_shutdown, EVENT_SCHEDULER_SHUTDOWN)
+    try:
+        scheduler.shutdown(wait=False)
+        await asyncio.wait_for(stopped.wait(), timeout=5)
+    finally:
+        scheduler.remove_listener(on_shutdown)

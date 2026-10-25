@@ -1,53 +1,35 @@
-import logging
+from collections.abc import Callable
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 
-from app.http.deps import firewall_deps
-from app.providers import (
-    app_provider,
-    exception_provider,
-    logging_provider,
-    middleware_provider,
-    openapi_provider,
-    route_provider,
-)
+from app.providers import app_provider, exception_provider, middleware_provider, openapi_provider, route_provider
 from app.providers.lifespan_provider import lifespan
-from config.config import settings
+from app.services.sms.sms_sender import SmsSender
+from config.settings import Settings, load_settings
 
 
-def create_app() -> FastAPI:
-    base_kwargs = {
-        'debug': settings.DEBUG,
-        'title': settings.NAME,
-        'version': settings.VERSION,
-        'lifespan': lifespan,
-        'dependencies': [Depends(firewall_deps.verify_ip_banned)],
-    }
+def create_app(
+    settings: Settings | None = None, *, sms_sender_factory: Callable[[], SmsSender] | None = None
+) -> FastAPI:
+    """组装独立应用，运行资源仅在lifespan内创建"""
+    settings = settings if settings is not None else load_settings()
+    app = FastAPI(
+        title=settings.APP_NAME,
+        version=settings.APP_VERSION,
+        debug=False,
+        lifespan=lifespan,
+        docs_url='/docs' if settings.APP_DEBUG else None,
+        redoc_url=None,
+        openapi_url='/openapi.json' if settings.APP_DEBUG else None,
+    )
+    app.state.settings = settings
+    app.state.sms_sender_factory = sms_sender_factory
+    app.state.resources = None
 
-    if settings.DEBUG:
-        app = FastAPI(**base_kwargs)
-    else:
-        # 生产环境不启用文档
-        app = FastAPI(
-            **base_kwargs, docs_url=None, redoc_url=None, openapi_url=None, swagger_ui_oauth2_redirect_url=None
-        )
-
-    register(app, logging_provider)
-    register(app, app_provider)
-    register(app, exception_provider)
-    register(app, middleware_provider)
-    register(app, openapi_provider)
-
-    boot(app, route_provider)
-
+    # 公共边界先于路由组装，CORS置于可控错误输出之外
+    exception_provider.register(app)
+    middleware_provider.register(app)
+    app_provider.register(app, settings)
+    route_provider.boot(app, settings)
+    openapi_provider.register(app, settings)
     return app
-
-
-def register(app, provider):
-    provider.register(app)
-    logging.info(provider.__name__ + ' registered')
-
-
-def boot(app, provider):
-    provider.boot(app)
-    logging.info(provider.__name__ + ' booted')

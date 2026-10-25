@@ -1,29 +1,20 @@
-import datetime
-import uuid
-from typing import Any
+from typing import Annotated
+from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 
-from app.schemas.base import BaseWithExtrasSc
+NumericDate = StrictInt | Annotated[StrictFloat, Field(allow_inf_nan=False)]
 
 
-class JWTSc(BaseWithExtrasSc):
-    iss: str = Field(..., description='发行者')
-    aud: str | None = Field(None, description='接收方')
-    sub: str | None = Field(None, description='主题')
-    exp: datetime.datetime = Field(..., description='过期时间')
-    nbf: datetime.datetime = Field(datetime.datetime.now(datetime.timezone.utc), description='在此时间之前无效')
-    iat: datetime.datetime = Field(datetime.datetime.now(datetime.timezone.utc), description='签发时间')
-    jti: str = Field(str(uuid.uuid4()), description='JWT 的唯一标识符')
+class JWTSc(BaseModel):
+    """验签后的必需声明；缺失字段不能由默认值补齐"""
 
-    @field_validator('exp', mode='before')
-    @classmethod
-    def normalize_exp(cls, value: Any):
-        """将过期时间转换为 datetime 对象"""
-        if isinstance(value, datetime.datetime):
-            return value
+    model_config = ConfigDict(extra='allow')
 
-        if isinstance(value, datetime.timedelta):
-            return datetime.datetime.now(datetime.timezone.utc) + value
-
-        return value
+    iss: str = Field(min_length=1)
+    aud: str = Field(min_length=1)
+    sub: UUID
+    exp: NumericDate
+    nbf: NumericDate
+    iat: NumericDate
+    jti: str = Field(min_length=1)

@@ -1,70 +1,67 @@
-#
-# 鉴权依赖
-#
+from typing import Annotated, override
 
-from uuid import UUID
-
-import sqlalchemy as sa
-from fastapi import Depends, HTTPException, Request, WebSocket
-from fastapi.requests import HTTPConnection
+from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.security.utils import get_authorization_scheme_param
+from starlette.requests import HTTPConnection
 
-from app.exceptions import AuthenticationError, InvalidUserError
-from app.http.deps.database_deps import get_db
+from app.exceptions import ApiError, AuthenticationError
+from app.http.deps.request_deps import get_timezone
+from app.http.deps.runtime_deps import get_resources, get_settings
 from app.models.user import UserModel
 from app.services.auth.token_service import validate_token
-from config.config import settings as config_settings
 
 
 class OAuth2PasswordBearerWithWebSocket(OAuth2PasswordBearer):
-    async def __call__(self, request_or_ws: HTTPConnection) -> str | None:
-        if isinstance(request_or_ws, Request):
-            token = await super().__call__(request_or_ws)
-        elif isinstance(request_or_ws, WebSocket):
-            token = request_or_ws.query_params.get('access_token')
-            if not token:
-                raise AuthenticationError()
-        else:
+    @override
+    async def __call__(self, connection: HTTPConnection) -> str | None:
+        scheme, token = get_authorization_scheme_param(connection.headers.get('Authorization'))
+        return token if scheme.lower() == 'bearer' and token else None
+
+
+oauth2_token = OAuth2PasswordBearerWithWebSocket(
+    tokenUrl='auth/token/password', scheme_name='PasswordBearer', auto_error=False
+)
+
+
+async def _user_for_token(connection: HTTPConnection, token: str) -> UserModel:
+    resources = get_resources(connection)
+    payload = await validate_token(token, resources.redis_client, get_settings(connection))
+
+    # 鉴权只持有短会话，WS不能把事务带进整个消息循环
+    async with resources.session_factory(info={'time_zone': get_timezone(connection)}) as session:
+        user = await session.get(UserModel, payload.sub)
+        if user is None or not user.is_enabled():
             raise AuthenticationError()
-
-        return token
-
-
-oauth2_token = OAuth2PasswordBearerWithWebSocket(tokenUrl=f'{config_settings.API_PREFIX[1:]}/auth/token/password')
+        return user
 
 
-async def get_auth_user(token: str = Depends(oauth2_token), session: AsyncSession = Depends(get_db)) -> UserModel:
-    payload = await validate_token(token)
-    user_id = UUID(payload.sub)
-    user = (
-        await session.execute(sa.select(UserModel).where((UserModel.id == user_id) & UserModel.exist_filter()))
-    ).scalar()
-
-    if not user:
+async def get_auth_user(connection: HTTPConnection, token: Annotated[str | None, Depends(oauth2_token)]) -> UserModel:
+    if token is None:
         raise AuthenticationError()
-    if not user.is_enabled():
-        raise InvalidUserError()
-    return user
+    return await _user_for_token(connection, token)
 
 
 async def get_auth_user_dirty(
-    request_or_ws: HTTPConnection, session: AsyncSession = Depends(get_db)
+    connection: HTTPConnection, token: Annotated[str | None, Depends(oauth2_token)]
 ) -> UserModel | None:
+    if token is None:
+        return None
     try:
-        token = await oauth2_token(request_or_ws)
-        if token is None:
-            return None
-    except HTTPException as e:
+        return await _user_for_token(connection, token)
+    except ApiError as exc:
+        if exc.status_code != 401:
+            raise
         return None
 
-    try:
-        payload = await validate_token(token)
-    except Exception as e:
-        return None
 
-    user_id = UUID(payload.sub)
-    user = (
-        await session.execute(sa.select(UserModel).where((UserModel.id == user_id) & UserModel.exist_filter()))
-    ).scalar()
+async def get_admin_user(user: Annotated[UserModel, Depends(get_auth_user)]) -> UserModel:
+    if not user.is_admin:
+        raise ApiError(403, 'PERMISSION_DENIED_ERROR', '权限不足')
     return user
+
+
+async def require_token(token: Annotated[str | None, Depends(oauth2_token)]) -> str:
+    if token is None:
+        raise AuthenticationError()
+    return token

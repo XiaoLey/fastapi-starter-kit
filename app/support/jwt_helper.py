@@ -1,73 +1,55 @@
-#
-# JWT 令牌辅助工具
-#
-# 提供 JWT 访问令牌的创建、解码和验证功能，支持自定义声明和过期时间。
-#
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Union
+import jwt
+from pydantic import ValidationError
 
-from jose import jwt
-
+from app.exceptions import InvalidTokenError, TokenExpiredError
 from app.schemas.jwt import JWTSc
-from config.auth import settings
+from config.settings import Settings
+
+_RESERVED = frozenset({'iss', 'aud', 'sub', 'exp', 'nbf', 'iat', 'jti'})
 
 
 def create_access_token(
-    subject: Union[str, Any], expires_delta: timedelta = None, additional_claims: dict[str, Any] = None
+    subject: UUID,
+    settings: Settings,
+    *,
+    expires_delta: timedelta | None = None,
+    additional_claims: dict[str, object] | None = None,
 ) -> str:
-    """创建一个 JWT 访问令牌
+    """签发访问凭据，额外声明不能覆盖保留字段"""
+    if additional_claims and _RESERVED.intersection(additional_claims):
+        raise ValueError('Additional claims cannot replace reserved claims')
 
-    Args:
-        subject (Union[str, Any]): 主题或用户的标识符
-        expires_delta (timedelta, optional): 令牌的有效期 (exp)，默认 None
-        additional_claims (dict[str, Any], optional): 额外的私有声明，默认 None
-
-    Returns:
-        str: 编码的 JWT 令牌
-    """
-    # 设置过期时间
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_TTL)
-
-    # 设置公共声明
-    to_encode = {
-        'iss': settings.JWT_ISSUER,  # 发行者
-        'aud': settings.JWT_AUDIENCE,  # 接收方
-        'sub': str(subject),  # 主题
-        'exp': expire,  # 过期时间
-        'nbf': datetime.now(timezone.utc),  # 在此时间之前无效
-        'iat': datetime.now(timezone.utc),  # 签发时间
-        'jti': str(uuid.uuid4()),  # JWT 的唯一标识符
+    # 所有时间声明共用同一个UTC时刻
+    now = datetime.now(UTC)
+    payload: dict[str, object] = {
+        'iss': settings.JWT_ISSUER,
+        'aud': settings.JWT_AUDIENCE,
+        'sub': str(subject),
+        'exp': now + (expires_delta if expires_delta is not None else timedelta(minutes=settings.JWT_TTL)),
+        'nbf': now,
+        'iat': now,
+        'jti': str(uuid4()),
+        **(additional_claims or {}),
     }
-
-    # 添加额外的私有声明
-    if additional_claims:
-        to_encode.update(additional_claims)
-
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(payload, settings.JWT_SECRET_KEY.get_secret_value(), algorithm='HS256')
 
 
-def get_payload_by_token(encoded_jwt: str) -> JWTSc:
-    """解码并返回 JWT 负载
-
-    Args:
-        encoded_jwt (str): 编码的 JWT 令牌
-
-    Returns:
-        JWTSc: 解码后的 JWT 数据
-    """
-    payload = jwt.decode(
-        encoded_jwt,
-        key=settings.JWT_SECRET_KEY,
-        algorithms=settings.JWT_ALGORITHM,
-        issuer=settings.JWT_ISSUER,
-        audience=settings.JWT_AUDIENCE,
-    )
-
-    validated_payload = JWTSc.model_validate(payload)
-    return validated_payload
+def get_payload_by_token(token: str, settings: Settings) -> JWTSc:
+    """验签并校验必需声明，所有凭据错误均属于身份错误"""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY.get_secret_value(),
+            algorithms=['HS256'],
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
+            options={'require': sorted(_RESERVED)},
+        )
+        return JWTSc.model_validate(payload)
+    except jwt.ExpiredSignatureError:
+        raise TokenExpiredError() from None
+    except (jwt.InvalidTokenError, ValidationError, ValueError, TypeError):
+        raise InvalidTokenError() from None

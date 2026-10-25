@@ -1,72 +1,39 @@
-#
-# 业务逻辑验证器
-#
-# 存放与数据持久化相关的验证函数，用于检查唯一性、存在性等业务约束。
-#
+from uuid import UUID
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import (
-    CellphoneAlreadyExistsError,
-    CellphoneEmptyError,
-    InvalidCellphoneError,
-    UsernameAlreadyExistsError,
-    UsernameEmptyError,
-)
+from app.exceptions import UserAlreadyExistsError
 from app.models.user import UserModel
-from app.support.string_helper import is_chinese_cellphone
 
 
-async def validate_username_availability(session: AsyncSession, username: str, exclude_id: int = None):
-    """验证用户名是否可用
+def unique_field(exc: IntegrityError) -> str | None:
+    """只识别模板拥有的用户名/手机号唯一约束"""
+    original = exc.orig
+    state: object = getattr(original, 'sqlstate', None)
+    constraint: object = getattr(original.__cause__ if original is not None else None, 'constraint_name', None)
+    if state == '23505':
+        if constraint == 'users_username_key':
+            return 'username'
+        if constraint == 'users_cellphone_key':
+            return 'cellphone'
+    return None
 
-    Args:
-        session: 数据库会话
-        username: 用户名
-        exclude_id: 要排除的用户 ID
 
-    Raises:
-        UsernameEmptyError: 如果用户名为空
-        InvalidUsernameLengthError: 如果用户名长度无效
-        InvalidUsernameError: 如果用户名包含无效字符
-        UsernameAlreadyExistsError: 如果用户名或手机号已存在
-    """
-    if not username:
-        raise UsernameEmptyError()
-
-    query = sa.select(sa.func.count()).where(
-        ((UserModel.username == username) | (UserModel.cellphone == username)) & UserModel.exist_filter()
-    )
-    if exclude_id:
+async def validate_username_availability(session: AsyncSession, username: str, exclude_id: UUID | None = None) -> None:
+    query = sa.select(UserModel.id).where(sa.or_(UserModel.username == username, UserModel.cellphone == username))
+    if exclude_id is not None:
         query = query.where(UserModel.id != exclude_id)
-    result = await session.execute(query)
-    if result.scalar() > 0:
-        raise UsernameAlreadyExistsError()
+    if await session.scalar(query.limit(1)) is not None:
+        raise UserAlreadyExistsError()
 
 
-async def validate_cellphone_availability(session: AsyncSession, cellphone: str, exclude_id: int = None):
-    """验证手机号是否可用
-
-    Args:
-        session: 数据库会话
-        cellphone: 手机号
-        exclude_id: 要排除的用户 ID
-
-    Raises:
-        CellphoneEmptyError: 如果手机号为空
-        InvalidCellphoneError: 如果手机号格式无效
-        CellphoneAlreadyExistsError: 如果手机号已存在
-    """
-    if not cellphone:
-        raise CellphoneEmptyError()
-
-    if not is_chinese_cellphone(cellphone):
-        raise InvalidCellphoneError()
-
-    query = sa.select(sa.func.count()).where((UserModel.cellphone == cellphone) & UserModel.exist_filter())
-    if exclude_id:
+async def validate_cellphone_availability(
+    session: AsyncSession, cellphone: str, exclude_id: UUID | None = None
+) -> None:
+    query = sa.select(UserModel.id).where(sa.or_(UserModel.cellphone == cellphone, UserModel.username == cellphone))
+    if exclude_id is not None:
         query = query.where(UserModel.id != exclude_id)
-    result = await session.execute(query)
-    if result.scalar() > 0:
-        raise CellphoneAlreadyExistsError()
+    if await session.scalar(query.limit(1)) is not None:
+        raise UserAlreadyExistsError()

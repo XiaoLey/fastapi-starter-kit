@@ -1,98 +1,55 @@
-import json
-import logging
-from urllib.parse import quote
+from http import HTTPStatus
 
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError, ResponseValidationError
-from fastapi.responses import JSONResponse
-from jose import jwt
-from pydantic import ValidationError as PydanticValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.status import HTTP_401_UNAUTHORIZED
+from fastapi import FastAPI, WebSocket
+from fastapi.exceptions import RequestValidationError, ResponseValidationError, WebSocketRequestValidationError
+from pydantic import ValidationError
+from starlette.exceptions import HTTPException
+from starlette.requests import HTTPConnection
+from starlette.responses import JSONResponse, Response
 
-from app.exceptions import (
-    AuthenticationError,
-    DataBrokenError,
-    InternalValidationError,
-    InvalidTokenError,
-    TokenExpiredError,
-    ValidationError,
-)
+from app.exceptions import ApiError
+from app.providers.logging_provider import log_failure
+from app.schemas.common import ErrorSc, ValidationDetailSc
 
 
-def register(app: FastAPI):
-    @app.exception_handler(json.decoder.JSONDecodeError)
-    async def json_decode_error(request: Request, exc: json.decoder.JSONDecodeError):
-        logging.error(exc)
-        return _handle_exception(request, DataBrokenError())
+def error_response(error: ApiError, *, detail: list[ValidationDetailSc] | None = None) -> JSONResponse:
+    body = ErrorSc(code=error.code, message=error.message, detail=detail)
+    return JSONResponse(body.model_dump(exclude_none=True), status_code=error.status_code, headers=error.headers)
 
-    @app.exception_handler(jwt.ExpiredSignatureError)
-    async def jwt_expired_exception_handler(request: Request, exc: jwt.ExpiredSignatureError):
-        return _handle_exception(request, TokenExpiredError())
 
-    @app.exception_handler(jwt.JWTError)
-    async def jwt_exception_handler(request: Request, exc: jwt.JWTError):
-        return _handle_exception(request, InvalidTokenError())
+def register(app: FastAPI) -> None:
+    @app.exception_handler(HTTPException)
+    async def handle_http(connection: HTTPConnection, exc: HTTPException) -> Response:
+        if connection.scope['type'] == 'websocket':
+            raise exc
+        if isinstance(exc, ApiError):
+            return error_response(exc)
+        if exc.status_code == 401:
+            headers = dict(exc.headers) if exc.headers else {}
+            if not any(key.lower() == 'www-authenticate' for key in headers):
+                headers['WWW-Authenticate'] = 'Bearer'
+            return error_response(ApiError(401, 'AUTHENTICATION_ERROR', '身份验证失败', headers=headers))
 
-    @app.exception_handler(jwt.JWTClaimsError)
-    async def jwt_claims_exception_handler(request: Request, exc: jwt.JWTClaimsError):
-        return _handle_exception(request, InvalidTokenError())
-
-    @app.exception_handler(StarletteHTTPException)
-    async def custom_http_exception_handler(request: Request, exc):
-        if exc.status_code == HTTP_401_UNAUTHORIZED and exc.detail == 'Not authenticated':
-            return _handle_exception(request, AuthenticationError(message='Not authenticated'))
-        return _handle_exception(request, exc)
-
-    @app.exception_handler(PydanticValidationError)
-    async def pydantic_exception_handler(request: Request, exc):
-        try:
-            logging.error(exc.json())
-        except:
-            logging.error(str(exc))
-        return _handle_exception(request, InternalValidationError())
+        # 普通HTTPException也保留协议头，但不透传任意detail内容
+        message = HTTPStatus(exc.status_code).phrase if exc.status_code in HTTPStatus else 'HTTP error'
+        return error_response(
+            ApiError(exc.status_code, 'HTTP_ERROR', message, headers=dict(exc.headers) if exc.headers else None)
+        )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc):
-        detail = exc.errors()
-        validation_details = []
-        for error in detail:
-            validation_detail = {'loc': error['loc'], 'type': error['type']}
-            validation_details.append(validation_detail)
-        add_info = {'message': 'Validation failed', 'detail': validation_details}
-        logging.warning(str(exc))
-        return _handle_exception(request, ValidationError(), add_info=add_info)
+    async def handle_request_validation(connection: HTTPConnection, exc: RequestValidationError) -> Response:
+        details = [ValidationDetailSc.model_validate(error, extra='ignore') for error in exc.errors()]
+        return error_response(ApiError(422, 'VALIDATION_ERROR', '输入校验失败'), detail=details)
 
+    @app.exception_handler(WebSocketRequestValidationError)
+    async def handle_ws_validation(connection: WebSocket, exc: WebSocketRequestValidationError) -> None:
+        # 外层ASGI边界掌握真实状态，不能在这里用新建的WebSocket判断已accept
+        raise exc
+
+    @app.exception_handler(ValidationError)
     @app.exception_handler(ResponseValidationError)
-    async def response_validation_exception_handler(request: Request, exc):
-        logging.error(str(exc))
-        return _handle_exception(request, InternalValidationError())
-
-
-def _encode_headers(headers: dict) -> dict:
-    """对 headers 的键和值进行 URL 编码，防止出现编码错误"""
-    encoded_headers = {}
-    for k, v in headers.items():
-        encoded_key = quote(k)  # URL 编码键
-        encoded_value = quote(v)  # URL 编码值
-        encoded_headers[encoded_key] = encoded_value
-    return encoded_headers
-
-
-def _handle_exception(request: Request, exc: StarletteHTTPException, add_info: any = None) -> JSONResponse:
-    headers: dict | None = getattr(exc, 'headers', None)
-
-    if headers:
-        if 'Access-Control-Expose-Headers' in headers:
-            del headers['Access-Control-Expose-Headers']
-        headers['Access-Control-Expose-Headers'] = ','.join(headers.keys())
-        headers = _encode_headers(headers)
-
-    if add_info:
-        if isinstance(exc.detail, dict):
-            exc.detail.update(add_info)
-        else:
-            exc.detail = {'message': exc.detail, **add_info}
-
-    # logging.warning({'status_code': exc.status_code, 'detail': exc.detail, 'headers': headers})
-    return JSONResponse(content=exc.detail, status_code=exc.status_code, headers=headers)
+    async def handle_internal_validation(connection: HTTPConnection, exc: Exception) -> Response:
+        if connection.scope['type'] == 'websocket':
+            raise exc
+        log_failure(exc)
+        return error_response(ApiError(500, 'UNKNOWN_ERROR', '内部服务错误'))

@@ -1,25 +1,28 @@
-from pydantic import Field
+from typing import Literal
+
+from pydantic import Field, SecretStr
 
 from app.schemas.base import BaseSc
+from app.schemas.user import Cellphone, VerificationCode
 
 
 class OAuth2PasswordSc(BaseSc):
-    """OAuth2 密码登录请求"""
+    """登录凭据不使用新注册的用户名格式或密码最小长度"""
 
-    grant_type: str = Field('password', description='授权类型', pattern='^password$', example='password')
-    username: str = Field(description='用户名', example='admin')
-    password: str = Field(description='密码', example='123456')
-    scope: str = Field('', description='授权范围')
-    client_id: str | None = Field(None, description='客户端ID')
-    client_secret: str | None = Field(None, description='客户端密钥')
+    grant_type: Literal['password'] = 'password'
+    username: str = Field(min_length=1, max_length=255)
+    password: SecretStr = Field(min_length=1, max_length=128)
 
 
 class OAuth2CellphoneSc(BaseSc):
-    """OAuth2 手机号+验证码登录请求"""
+    cellphone: Cellphone
+    verification_code: VerificationCode
+    grant_type: Literal['cellphone'] = 'cellphone'
+    scope: str = ''
+    client_id: str | None = None
+    client_secret: SecretStr | None = None
 
-    grant_type: str = Field('cellphone', description='授权类型', pattern='^cellphone$', example='cellphone')
-    cellphone: str = Field(description='手机号', example='12345678901')
-    verification_code: str = Field(description='验证码', example='123456')
-    scope: str = Field('', description='授权范围')
-    client_id: str | None = Field(None, description='客户端ID')
-    client_secret: str | None = Field(None, description='客户端密钥')
+
+class VerificationCodeReqSc(BaseSc):
+    cellphone: Cellphone
+    purpose: Literal['register', 'login']

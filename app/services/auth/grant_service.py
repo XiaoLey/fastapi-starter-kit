@@ -1,103 +1,103 @@
-#
-# OAuth2 授权业务逻辑
-#
-# 实现用户名密码授权和手机号授权的业务逻辑，包括用户验证和令牌颁发。
-#
-
-import random
-import string
-
-from pydantic import ConfigDict, validate_call
+import sqlalchemy as sa
+from redis.asyncio import Redis
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import (
-    InvalidCellphoneCodeError,
-    InvalidPasswordError,
-    InvalidUserError,
-    InvalidVerificationCodeError,
-    UsernameAlreadyExistsError,
-    UserNotFoundError,
-)
+from app.exceptions import AuthenticationError
 from app.models.user import UserModel
 from app.schemas.oauth2 import OAuth2CellphoneSc, OAuth2PasswordSc
-from app.schemas.user import UserCreateReqSc
+from app.schemas.token import TokenSc
 from app.services.auth import verification_code_service
 from app.services.auth.token_service import create_token_response_from_user
 from app.services.auth.user_service import create_user
+from app.services.auth.validation_service import unique_field
 from app.support import password_helper
+from app.support.string_helper import alphanumeric_random
+from config.settings import Settings
 
 
 class PasswordGrant:
-    """用户名密码授权"""
+    """用户名或手机号密码登录"""
 
-    @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
-    def __init__(self, session: AsyncSession, client_ip: str, request_data: OAuth2PasswordSc):
+    def __init__(self, session: AsyncSession, settings: Settings, request_data: OAuth2PasswordSc) -> None:
         self.session = session
-        self.client_ip = client_ip
+        self.settings = settings
         self.request_data = request_data
 
-    async def respond(self):
-        user = await UserModel.get_one(
-            self.session,
-            ((UserModel.username == self.request_data.username) | (UserModel.cellphone == self.request_data.username))
-            & UserModel.exist_filter(),
+    async def respond(self) -> TokenSc:
+        # 全历史跨列歧义不能由查询顺序或密码决定身份
+        users = (
+            await self.session.scalars(
+                sa
+                .select(UserModel)
+                .where(
+                    sa.or_(
+                        UserModel.username == self.request_data.username,
+                        UserModel.cellphone == self.request_data.username,
+                    )
+                )
+                .limit(2)
+            )
+        ).all()
+        user = users[0] if len(users) == 1 else None
+        valid, replacement = await password_helper.verify_password(
+            self.request_data.password.get_secret_value(), user.password if user is not None else None
         )
-        if not user:
-            raise UserNotFoundError()
+        if user is None or not valid or not user.is_enabled():
+            raise AuthenticationError()
 
-        # 用户密码校验
-        if not (user.password and password_helper.verify_password(self.request_data.password, user.password)):
-            raise InvalidPasswordError()
-
-        # 用户状态校验
-        if not user.is_enabled():
-            raise InvalidUserError()
-
-        return create_token_response_from_user(user)
+        # 升级哈希提交失败时不能返回成功凭据
+        if replacement is not None:
+            user.password = replacement
+            await self.session.commit()
+        return create_token_response_from_user(user, self.settings)
 
 
 class CellphoneGrant:
-    """手机号授权"""
+    """验证码登录，首次创建普通无密码账号"""
 
-    def __init__(self, session: AsyncSession, client_ip: str, request_data: OAuth2CellphoneSc):
-        self.is_creating_user = False  # 标记是否正在创建新用户
+    def __init__(
+        self, session: AsyncSession, redis: Redis, settings: Settings, request_data: OAuth2CellphoneSc
+    ) -> None:
         self.session = session
-        self.client_ip = client_ip
+        self.redis = redis
+        self.settings = settings
         self.request_data = request_data
 
-    async def respond(self):
+    async def respond(self) -> TokenSc:
         cellphone = self.request_data.cellphone
-        code = self.request_data.verification_code
+        await verification_code_service.verify_code(
+            self.redis, self.settings, cellphone=cellphone, code=self.request_data.verification_code, purpose='login'
+        )
+        user = await self.session.scalar(sa.select(UserModel).where(UserModel.cellphone == cellphone))
 
-        try:
-            await verification_code_service.verify_code(cellphone, code)
-        except InvalidVerificationCodeError:
-            raise InvalidCellphoneCodeError()
+        # 保存点只包数据库创建，不重试验证码消费或整个登录
+        if user is None:
+            # 旧的数字用户名不能因首次手机号登录而产生第二个歧义身份
+            if await self.session.scalar(sa.select(UserModel.id).where(UserModel.username == cellphone)) is not None:
+                raise AuthenticationError()
+            for _ in range(3):
+                username = f'u_{alphanumeric_random(20)}'
+                try:
+                    async with self.session.begin_nested():
+                        user = await create_user(
+                            self.session, username=username, nickname=username, gender='unknown', cellphone=cellphone
+                        )
+                    break
+                except IntegrityError as exc:
+                    field = unique_field(exc)
+                    if field == 'username':
+                        continue
+                    if field != 'cellphone':
+                        raise
+                    user = await self.session.scalar(sa.select(UserModel).where(UserModel.cellphone == cellphone))
+                    break
+            if user is None:
+                raise RuntimeError('Account creation could not resolve a unique identity')
+            if not user.is_enabled():
+                raise AuthenticationError()
+            await self.session.commit()
 
-        user = await UserModel.get_one(self.session, (UserModel.cellphone == cellphone) & UserModel.exist_filter())
-        while not user:
-            try:
-                # 创建一个用户名（随机 10 位数字或字母组合）
-                username = ''.join(random.choices(string.digits + string.ascii_lowercase, k=10))
-
-                # 创建用户
-                new_user_info = UserCreateReqSc(
-                    username=username,
-                    password=None,
-                    nickname=username,
-                    gender='unknown',
-                    cellphone=cellphone,
-                    cellphone_verification_code='',
-                )
-                user = await create_user(self.session, self.client_ip, new_user_info)
-                self.is_creating_user = True
-            except UsernameAlreadyExistsError:
-                continue
-            except Exception as e:
-                raise e
-
-        # 用户状态校验
         if not user.is_enabled():
-            raise InvalidUserError()
-
-        return create_token_response_from_user(user)
+            raise AuthenticationError()
+        return create_token_response_from_user(user, self.settings)

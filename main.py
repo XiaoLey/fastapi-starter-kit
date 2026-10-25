@@ -1,27 +1,27 @@
 import uvicorn
 
-import app.providers.mimetypes_provider  # noqa: F401
-from config.config import settings
-from config.logging import settings as logging_settings
+from app.providers.logging_provider import initialize
+from config.settings import load_settings
+
+
+def main() -> None:
+    settings = load_settings()
+    initialize(settings)
+
+    # 显式覆盖服务器默认信任，不能由外部FORWARDED_ALLOW_IPS意外扩权
+    uvicorn.run(
+        'api_app:app',
+        host=settings.APP_SERVER_HOST,
+        port=settings.APP_SERVER_PORT,
+        reload=settings.APP_DEBUG,
+        workers=1 if settings.APP_DEBUG else settings.APP_WORKERS,
+        proxy_headers=bool(settings.APP_TRUSTED_PROXY_IPS),
+        forwarded_allow_ips=settings.APP_TRUSTED_PROXY_IPS,
+        log_config=None,
+        log_level={'SUCCESS': 'info'}.get(settings.LOG_LEVEL, settings.LOG_LEVEL.lower()),
+        timeout_keep_alive=120,
+    )
+
 
 if __name__ == '__main__':
-    if settings.DEBUG:
-        # 开发环境配置：启用自动重载，单进程模式
-        uvicorn.run(
-            app='api_app:app',
-            host=settings.SERVER_HOST,
-            port=settings.SERVER_PORT,
-            reload=True,
-            workers=1,  # 单个进程
-        )
-    else:
-        # 生产环境配置：禁用自动重载，启用多进程模式
-        uvicorn.run(
-            app='api_app:app',
-            host=settings.SERVER_HOST,
-            port=settings.SERVER_PORT,
-            reload=False,  # 禁用自动重载
-            workers=settings.WORKERS,  # 启用多进程模式，workers 数量可以根据需求调整
-            timeout_keep_alive=120,  # 客户端与服务器之间的连接保持时间（秒）
-            log_level=logging_settings.LOG_LEVEL.lower(),  # 设置日志级别为生产环境常用的 "info" 或 "warning"
-        )
+    main()

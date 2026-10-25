@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-set -e
-
-# 执行 alembic 命令
-echo "Running database migrations..."
-alembic upgrade head
-
-# 启动 web 应用
-echo "Starting web..."
-python main.py &
-
-# 等待进程完成
-wait -n
-
-# 获取退出状态
-exit $?
+# 发布前单独迁移，运行阶段只使用已安装环境
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$ROOT"
+export APP_ENV=production
+exec "$ROOT/.venv/bin/python" main.py

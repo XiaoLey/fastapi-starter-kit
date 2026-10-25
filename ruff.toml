@@ -2,6 +2,11 @@ preview = true      # 启用预览模式
 line-length = 120   # 设置一行最大长度
 indent-width = 4    # tab每次缩进所用的空格数
 
+# 文档不参与检查与格式化：ruff 会重排 .md 里 ```python 代码块
+# 用 extend-exclude 而非 exclude，后者会覆盖掉 .venv/build/dist 等默认排除项
+extend-exclude = ["*.md", "migrations/versions/883992f5b42f_init.py"]
+
+[lint]
 # 选择要检查的规则
 select = [
     "B",     # Bug风险规则
@@ -54,3 +59,7 @@ docstring-code-format = true        # 是否在注释中格式化代码片段
 skip-magic-trailing-comma = true    # 使用现有的尾随逗号作为短行应保持独立的指示
 line-ending = "auto"                # 行尾使用的字符
 quote-style = "single"              # 字符使用单引号
+
+[lint.isort]
+# 与 format.skip-magic-trailing-comma=true 保持兼容，避免 ruff 配置告警
+split-on-trailing-comma = false

@@ -1,37 +1,59 @@
 import redis.asyncio as redis
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
+from sqlalchemy import Connection, event
+from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, SessionTransaction
 
-import app.providers.sqlalchemy_provider  # noqa: F401
-from config.config import settings as config_settings
-from config.database import redis_settings
-from config.database import settings as db_settings
-
-engine = create_async_engine(
-    db_settings.SQLALCHEMY_DATABASE_URL,
-    pool_size=4,
-    # echo_pool='debug' if config_settings.DEBUG else False,
-    echo='debug' if config_settings.DEBUG else False,
-)
+from config.settings import Settings
 
 
-# 异步数据库会话
-async_session_factory = async_sessionmaker(
-    autocommit=False, autoflush=True, bind=engine, class_=AsyncSession, expire_on_commit=False
-)
+class _Session(Session):
+    """仅为本项目会话安装事务局部时区"""
 
 
-async def set_session_time_zone(session: AsyncSession, time_zone: str = 'Asia/Shanghai') -> None:
-    await session.execute(sa.text(f"SET TIME ZONE '{time_zone}'"))
+@event.listens_for(_Session, 'after_begin')
+def _set_transaction_time_zone(session: _Session, transaction: SessionTransaction, connection: Connection) -> None:
+    zone = session.info.get('time_zone', 'Asia/Shanghai')
+    if not isinstance(zone, str):
+        raise TypeError('Session time zone must be a string')
+    connection.execute(sa.text("SELECT set_config('TimeZone', :zone, true)"), {'zone': zone})
 
 
-# redis
-redis_pool = redis.ConnectionPool(
-    host=redis_settings.REDIS_HOST,
-    port=redis_settings.REDIS_PORT,
-    db=redis_settings.REDIS_DB,
-    password=redis_settings.REDIS_PASSWORD,
-    decode_responses=True,
-    health_check_interval=30,  # 每30秒检查一次连接健康状态，防止使用失效连接
-)
-redis_client = redis.Redis(connection_pool=redis_pool)
+def create_engine(settings: Settings) -> AsyncEngine:
+    return create_async_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_size=settings.POSTGRES_POOL_SIZE,
+        max_overflow=settings.POSTGRES_MAX_OVERFLOW,
+        pool_timeout=settings.POSTGRES_POOL_TIMEOUT,
+        pool_recycle=settings.POSTGRES_POOL_RECYCLE,
+        hide_parameters=True,
+        echo=False,
+    )
+
+
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, class_=AsyncSession, sync_session_class=_Session, expire_on_commit=False)
+
+
+def create_redis_pool(settings: Settings) -> redis.ConnectionPool:
+    return redis.ConnectionPool(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        db=settings.REDIS_DB,
+        password=settings.REDIS_PASSWORD.get_secret_value() or None,
+        decode_responses=True,
+        health_check_interval=30,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+        max_connections=64,
+    )
+
+
+def is_dependency_failure(exc: Exception) -> bool:
+    return isinstance(
+        exc, (RedisConnectionError, RedisTimeoutError, ConnectionError, TimeoutError, OperationalError)
+    ) or (isinstance(exc, DBAPIError) and exc.connection_invalidated)

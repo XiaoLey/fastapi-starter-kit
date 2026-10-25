@@ -1,42 +1,34 @@
-#
-# 令牌管理服务
-#
-# 提供令牌的创建、验证和吊销功能，管理令牌的生命周期和状态。
-#
+import hashlib
+import math
+from datetime import UTC, datetime
 
-from datetime import datetime, timedelta, timezone
+from redis.asyncio import Redis
 
 from app.exceptions import InvalidTokenError
 from app.models.user import UserModel
-from app.providers.database_provider import redis_client
 from app.schemas.jwt import JWTSc
 from app.schemas.token import TokenSc
 from app.support import jwt_helper
-from config.auth import settings
-from config.redis_key import settings as redis_key_settings
+from config.settings import Settings
 
 
-def create_token_response_from_user(user: UserModel) -> TokenSc:
-    """根据用户模型创建令牌响应"""
-    expires_delta = timedelta(minutes=settings.JWT_TTL)
-    expires_in = int(expires_delta.total_seconds())
-    token = jwt_helper.create_access_token(user.id, expires_delta=expires_delta)
-
-    return TokenSc(token_type='bearer', expires_in=expires_in, access_token=token)
+def create_token_response_from_user(user: UserModel, settings: Settings) -> TokenSc:
+    return TokenSc(expires_in=settings.JWT_TTL * 60, access_token=jwt_helper.create_access_token(user.id, settings))
 
 
-async def validate_token(token: str) -> JWTSc:
-    """验证 token 并返回解码后的数据"""
-    value = await redis_client.get(f'{redis_key_settings.VERIFY_GRANT_TOKEN}:{token}')
-    if value and value == 'invalid':
+def revocation_key(token: str, settings: Settings) -> str:
+    return f'{settings.REDIS_KEY_PREFIX}:revoked:{hashlib.sha256(token.encode()).hexdigest()}'
+
+
+async def validate_token(token: str, redis: Redis, settings: Settings) -> JWTSc:
+    """先验签再查询吊销，基础设施故障不当作身份无效"""
+    payload = jwt_helper.get_payload_by_token(token, settings)
+    if await redis.exists(revocation_key(token, settings)):
         raise InvalidTokenError()
-
-    payload = jwt_helper.get_payload_by_token(token)
     return payload
 
 
-async def cancel_token(token: str):
-    """吊销一个 token"""
-    payload = await validate_token(token)
-    expire_in = int(payload.exp.timestamp() - datetime.now(timezone.utc).timestamp())
-    await redis_client.setex(name=f'{redis_key_settings.VERIFY_GRANT_TOKEN}:{token}', time=expire_in, value='invalid')
+async def cancel_token(token: str, redis: Redis, settings: Settings) -> None:
+    payload = await validate_token(token, redis, settings)
+    remaining = payload.exp - datetime.now(UTC).timestamp()
+    await redis.set(revocation_key(token, settings), 'invalid', ex=max(1, math.ceil(remaining)))

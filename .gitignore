@@ -7,3 +7,10 @@ venv
 .vscode/tasks.json
 *.swp
 .env
+.ruff_cache/
+.pytest_cache/
+.basedpyright/
+.coverage
+storage/logs/
+storage/verification/
+docker/volumes/

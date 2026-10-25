@@ -1,28 +1,25 @@
-#
-# 请求依赖
-#
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Request, WebSocket
-from fastapi.requests import HTTPConnection
+from starlette.requests import HTTPConnection
 
-from app.exceptions import UnknownProtocol
+from app.exceptions import ApiError
 
 
-async def get_request_ip(request_or_ws: HTTPConnection) -> str:
-    """获取请求ip"""
-    return request_or_ws.client.host
+def get_request_ip(connection: HTTPConnection) -> str:
+    """仅使用服务器已规范化的连接来源"""
+    if connection.client is None:
+        raise ApiError(503, 'CLIENT_ADDRESS_UNAVAILABLE', '连接来源不可用')
+    return connection.client.host
 
 
-async def get_timezone(request_or_ws: HTTPConnection) -> str:
-    """请求头中获取时区"""
-    if isinstance(request_or_ws, Request):
-        if 'Time-Zone' in request_or_ws.headers:
-            return request_or_ws.headers['Time-Zone']
-        elif 'X-Time-Zone' in request_or_ws.headers:
-            return request_or_ws.headers['X-Time-Zone']
-        else:
-            return 'Asia/Shanghai'
-    elif isinstance(request_or_ws, WebSocket):
-        return request_or_ws.query_params.get('time-zone', 'Asia/Shanghai')
+def get_timezone(connection: HTTPConnection) -> str:
+    """返回有效IANA时区，默认Asia/Shanghai"""
+    if connection.scope['type'] == 'websocket':
+        zone = connection.query_params.get('time-zone', 'Asia/Shanghai')
     else:
-        raise UnknownProtocol()
+        zone = connection.headers.get('Time-Zone', connection.headers.get('X-Time-Zone', 'Asia/Shanghai'))
+    try:
+        ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ApiError(422, 'VALIDATION_ERROR', '时区无效') from None
+    return zone

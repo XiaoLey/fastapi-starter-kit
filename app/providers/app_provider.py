@@ -1,21 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.config import settings
+from config.settings import Settings
 
 
-def register(app: FastAPI):
-    _add_global_middleware(app)
-
-
-def _add_global_middleware(app: FastAPI):
-    """
-    注册全局中间件
-    """
+def register(app: FastAPI, settings: Settings) -> None:
+    # 最后添加的用户中间件在外层，为可控错误响应附加CORS头
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=['*' if settings.DEBUG else f'https://{settings.SERVER_DOMAIN}'],
-        allow_credentials=True,
+        allow_origins=settings.APP_CORS_ORIGINS,
+        allow_credentials=settings.APP_CORS_ALLOW_CREDENTIALS,
         allow_methods=['*'],
         allow_headers=['*'],
+        expose_headers=['WWW-Authenticate', 'Retry-After', 'Allow'],
     )

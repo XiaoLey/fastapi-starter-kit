@@ -1,0 +1,16 @@
+{
+  "exclude": ["dist", ".venv", "migrations/versions"],
+  "reportUnusedCallResult": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUnannotatedClassAttribute": "none",
+  "reportAny": "none",
+  "reportExplicitAny": "none",
+  "reportImplicitStringConcatenation": "none",
+  "reportUnusedParameter": "information",
+  "reportUnusedFunction": "information",
+  "reportFunctionMemberAccess": "information",
+  "reportRedeclaration": "information",
+  "reportImportCycles": "information"
+}
