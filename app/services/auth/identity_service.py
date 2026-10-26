@@ -34,18 +34,6 @@ async def find_user(session: AsyncSession, *, namespace: str, subject: str) -> U
     )
 
 
-def is_identity_conflict(exc: IntegrityError) -> bool:
-    """只识别身份归属唯一键，不吞掉其他数据库错误"""
-    original: BaseException | None = exc.orig
-    for _ in range(4):
-        if original is None:
-            break
-        if getattr(original, 'constraint_name', None) == 'uq_auth_identity_namespace_subject':
-            return True
-        original = original.__cause__
-    return False
-
-
 async def create_account(
     session: AsyncSession,
     identities: Sequence[PreparedIdentity],
@@ -53,33 +41,49 @@ async def create_account(
     profile: UserProfileSc | None = None,
     write_credentials: Callable[[AsyncSession, UUID], Awaitable[None]] | None = None,
 ) -> UserModel:
-    """原子创建普通用户、身份和可选凭据；身份占用整体冲突
+    """原子创建普通用户、身份和可选凭据，提交成功后返回
 
-    调用方须先验证证明及可登录性。凭据写入回调不得独立提交事务。
+    调用方须先验证证明及可登录性。凭据回调使用给定会话写入，不得独立提交。
+
+    Raises:
+        ValueError: 没有提供身份
+        UserAlreadyExistsError: 本次身份已被占用；其他数据库错误不转换
     """
     if not identities:
         raise ValueError('An account requires at least one prepared identity')
 
     # 保存点覆盖整个建号单元，唯一竞争不能留下孤儿用户
-    try:
-        async with session.begin_nested():
-            user = await create_user(session, profile if profile is not None else UserProfileSc())
-            session.add_all([
-                AuthIdentityModel(
-                    user_id=user.id, namespace=item.namespace, subject=item.subject, verified_at=item.verified_at
-                )
-                for item in identities
-            ])
+    async with session.begin_nested():
+        user = await create_user(session, profile if profile is not None else UserProfileSc())
+        session.add_all([
+            AuthIdentityModel(
+                user_id=user.id, namespace=item.namespace, subject=item.subject, verified_at=item.verified_at
+            )
+            for item in identities
+        ])
+        try:
             await session.flush()
-            if write_credentials is not None:
-                await write_credentials(session, user.id)
-                await session.flush()
-        await session.commit()
-    except IntegrityError as exc:
-        if not is_identity_conflict(exc):
+        except IntegrityError as exc:
+            # 仅翻译本次身份写入的目标唯一键，不吞凭据模块的同名约束错误
+            original: BaseException | None = exc.orig
+            for _ in range(4):
+                if original is None:
+                    break
+                if (
+                    getattr(original, 'sqlstate', None) == '23505'
+                    and getattr(original, 'table_name', None) == AuthIdentityModel.__tablename__
+                    and getattr(original, 'constraint_name', None) == 'uq_auth_identity_namespace_subject'
+                ):
+                    raise UserAlreadyExistsError() from None
+                original = original.__cause__
             raise
-        raise UserAlreadyExistsError() from None
 
+        # 模块凭据与用户、身份共同成功或回滚
+        if write_credentials is not None:
+            await write_credentials(session, user.id)
+            await session.flush()
+
+    await session.commit()
     return user
 
 

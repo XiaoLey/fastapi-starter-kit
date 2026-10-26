@@ -9,6 +9,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from pydantic import Field, SecretStr
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import AuthenticationError
@@ -19,7 +20,7 @@ from app.models.password_credential import PasswordCredentialModel
 from app.models.user import UserModel
 from app.schemas.base import BaseSc
 from app.schemas.token import TokenSc
-from app.services.auth.identity_service import PreparedIdentity, resolve_verified_user
+from app.services.auth.identity_service import PreparedIdentity, create_account, resolve_verified_user
 from app.services.auth.modules import AuthModule, AuthModuleFactory
 from app.services.auth.token_service import create_token_response_from_user
 from config.settings import Settings
@@ -305,6 +306,52 @@ async def test_custom_module_alone_uses_public_core_contract(app_factory: AppFac
         assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 1
         assert await session.scalar(sa.select(sa.func.count()).select_from(PasswordCredentialModel)) == 0
 
+
+async def test_unrelated_constraints_do_not_hide_account_failure(app_factory: AppFactory) -> None:
+    application = await app_factory()
+    identity = PreparedIdentity(namespace='test/credential-failure', subject='owner')
+    for constraint, value, state in (('CHECK (value > 0)', -1, '23514'), ('UNIQUE (value)', 1, '23505')):
+        async with application.resources.session_factory() as session:
+            # 真实同名约束既可从身份触发器失败，也可从模块凭据写入失败
+            await session.execute(
+                sa.text(
+                    f'CREATE TEMP TABLE addon_credentials (value integer, '
+                    f'CONSTRAINT uq_auth_identity_namespace_subject {constraint}) ON COMMIT DROP'
+                )
+            )
+            await session.execute(sa.text('INSERT INTO addon_credentials VALUES (1)'))
+            await session.execute(
+                sa.text(f"""
+                CREATE FUNCTION pg_temp.reject_identity() RETURNS trigger AS $$
+                BEGIN
+                    INSERT INTO pg_temp.addon_credentials VALUES ({value});
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """)
+            )
+            await session.execute(
+                sa.text(
+                    'CREATE TRIGGER credential_failure BEFORE INSERT ON auth_identities '
+                    'FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_identity()'
+                )
+            )
+            with pytest.raises(IntegrityError) as from_identity:
+                await create_account(session, [identity])
+            assert getattr(from_identity.value.orig, 'sqlstate', None) == state
+            assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 0
+
+            # 模块回调的数据库错误不能进入身份竞争的翻译路径
+            await session.execute(sa.text('DROP TRIGGER credential_failure ON auth_identities'))
+
+            async def write_credentials(db: AsyncSession, user_id: UUID, bad_value: int = value) -> None:
+                await db.execute(sa.text('INSERT INTO addon_credentials VALUES (:value)'), {'value': bad_value})
+
+            with pytest.raises(IntegrityError) as from_credentials:
+                await create_account(session, [identity], write_credentials=write_credentials)
+            assert getattr(from_credentials.value.orig, 'sqlstate', None) == state
+            assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 0
+            assert await session.scalar(sa.select(sa.func.count()).select_from(AuthIdentityModel)) == 0
 
 async def test_global_quota_shared_between_apps(app_factory: AppFactory) -> None:
     first = await app_factory(AUTH_MODULES=['password'], APP_QPS=2)
