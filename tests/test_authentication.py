@@ -1,170 +1,316 @@
 import asyncio
+import hmac
+from datetime import UTC, datetime
+from typing import Annotated, Literal
+from uuid import UUID
 
 import httpx
 import pytest
 import sqlalchemy as sa
-from pwdlib.hashers.bcrypt import BcryptHasher
+from fastapi import APIRouter, Depends, Request
+from pydantic import Field, SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.exceptions import AuthenticationError
+from app.http.deps import database_deps, firewall_deps
+from app.http.deps.runtime_deps import get_jwt_settings
+from app.models.auth_identity import AuthIdentityModel
+from app.models.password_credential import PasswordCredentialModel
 from app.models.user import UserModel
+from app.schemas.base import BaseSc
 from app.schemas.token import TokenSc
-from bootstrap.application import create_app
+from app.services.auth.identity_service import PreparedIdentity, resolve_verified_user
+from app.services.auth.modules import AuthModule, AuthModuleFactory
+from app.services.auth.token_service import create_token_response_from_user
 from config.settings import Settings
-from tests.conftest import AppClient, SmsRecorder
+from tests.conftest import AppFactory
 
 pytestmark = pytest.mark.integration
 
 
-async def test_username_authentication_lifecycle(application: AppClient) -> None:
-    # 同一账号的注册冲突和错误凭据均从公开接口验证
+def headers(response: httpx.Response) -> dict[str, str]:
+    assert response.status_code == 200
+    token = TokenSc.model_validate_json(response.content)
+    return {'Authorization': f'Bearer {token.access_token}'}
+
+
+async def test_password_lifecycle_and_unavailable_account(app_factory: AppFactory) -> None:
+    application = await app_factory(AUTH_MODULES=['password'], AUTH_CODE_SECRET_KEY=None)
     client = application.client
-    registration = {'username': 'tester', 'password': 'long-password-123', 'nickname': '测试账号', 'gender': 'unknown'}
-    assert (await client.post('/api/users', json=registration)).status_code == 201
-    assert (await client.post('/api/users', json=registration)).status_code == 409
-    assert (
-        await client.post('/api/auth/token/password', data={'username': 'tester', 'password': 'wrong'})
-    ).status_code == 401
+    registration = {
+        'identities': [{'kind': 'username', 'identifier': ' tester '}],
+        'password': 'long-password-123',
+        'profile': {'nickname': '测试账号'},
+    }
+    created = await client.post('/api/auth/register', json=registration)
+    assert created.status_code == 201
+    user_id = UUID(created.json()['id'])
+    assert (await client.post('/api/auth/register', json=registration)).status_code == 409
+    assert application.sms is None and application.email is None
+    assert (await client.post('/api/users', json={})).status_code == 404
 
-    # 缺省grant_type和兼容scope输入不能改变账号权限
-    response = await client.post(
-        '/api/auth/token/password',
-        data={'username': 'tester', 'password': 'long-password-123', 'scope': 'admin', 'client_id': 'admin'},
-    )
-    assert response.status_code == 200
-    token = TokenSc.model_validate_json(response.content)
-    headers = {'Authorization': f'Bearer {token.access_token}'}
-    me = await client.get('/api/users/me', headers=headers)
-    assert me.status_code == 200 and me.json()['username'] == 'tester'
-    assert me.json()['is_admin'] is False and 'password' not in me.json()
-    assert (await client.get('/api/auth/token/status', headers=headers)).status_code == 200
+    # 错误凭据不泄漏身份，成功登录只返回资料白名单
+    login = {'kind': 'username', 'identifier': 'tester', 'password': 'wrong'}
+    assert (await client.post('/api/auth/password/token', json=login)).status_code == 401
+    login['password'] = 'long-password-123'
+    first = headers(await client.post('/api/auth/password/token', json=login))
+    second = headers(await client.post('/api/auth/password/token', json=login))
+    me = await client.get('/api/users/me', headers=first)
+    assert me.status_code == 200 and me.json()['id'] == str(user_id)
+    assert me.json()['is_admin'] is False
+    assert not {'username', 'password', 'cellphone', 'identities'}.intersection(me.json())
+    assert (await client.get('/api/auth/token/status', headers=first)).status_code == 200
 
-    # 退出必须真正影响后续受保护请求，而不只是返回success
-    assert (await client.delete('/api/auth/token', headers=headers)).status_code == 200
-    assert (await client.get('/api/users/me', headers=headers)).status_code == 401
-    assert (await client.get('/api/health/ready')).status_code == 200
-
-
-async def test_legacy_password_upgrade_and_disabled_identity(application: AppClient) -> None:
-    # 保留旧数据形态，认证流程负责持久化兼容升级
+    # 单token吊销不影响同一用户的其他有效凭据
+    assert (await client.delete('/api/auth/token', headers=first)).status_code == 200
+    assert (await client.get('/api/users/me', headers=first)).status_code == 401
+    assert (await client.get('/api/users/me', headers=second)).status_code == 200
     async with application.resources.session_factory() as session:
-        user = UserModel(username=' old name ', nickname='旧账号', password=BcryptHasher().hash('short'))
-        session.add(user)
-        await session.commit()
-        identity = user.id
-
-    # 旧用户名和短密码按旧值登录，验证升级确实提交到数据库
-    response = await application.client.post(
-        '/api/auth/token/password', data={'username': ' old name ', 'password': 'short'}
-    )
-    assert response.status_code == 200
-    token = TokenSc.model_validate_json(response.content)
-    headers = {'Authorization': f'Bearer {token.access_token}'}
-    async with application.resources.session_factory() as session:
-        user = await session.get(UserModel, identity)
-        assert user is not None and user.password is not None and user.password.startswith('$argon2')
+        credential = await session.get(PasswordCredentialModel, user_id)
+        assert credential is not None and credential.password_hash.startswith('$argon2')
+        user = await session.get(UserModel, user_id)
+        assert user is not None
         user.state = 'disabled'
         await session.commit()
+    assert (await client.post('/api/auth/password/token', json=login)).status_code == 401
+    assert (await client.get('/api/users/me', headers=second)).status_code == 401
 
-    assert (await application.client.get('/api/users/me', headers=headers)).status_code == 401
-    assert (await application.client.get('/api/auth/token/status', headers=headers)).status_code == 401
-    assert (await application.client.delete('/api/auth/token', headers=headers)).status_code == 200
-
-
-async def test_phone_registration_login_and_sender_failure(application: AppClient) -> None:
-    # 供应商失败不生成可用验证码，也不能返回发送成功
-    client, sender = application.client, application.sender
-    sender.fail = True
-    response = await client.post(
-        '/api/auth/verification-codes/cellphone', json={'cellphone': '13800000000', 'purpose': 'register'}
-    )
-    assert response.status_code == 503 and not sender.sent
-    sender.fail = False
-
-    # 注册码不能用于登录，带手机号注册后仍支持手机号密码登录
-    assert (
-        await client.post(
-            '/api/auth/verification-codes/cellphone', json={'cellphone': '13800000000', 'purpose': 'register'}
-        )
-    ).status_code == 200
-    register_code = sender.sent[-1][1]
-    assert (
-        await client.post(
-            '/api/auth/token/cellphone', json={'cellphone': '13800000000', 'verification_code': register_code}
-        )
-    ).status_code == 422
-    assert (
-        await client.post(
-            '/api/users',
-            json={
-                'username': 'phone-owner',
-                'password': 'long-password-123',
-                'nickname': '手机号账号',
-                'gender': 'unknown',
-                'cellphone': '13800000000',
-                'cellphone_verification_code': register_code,
-            },
-        )
-    ).status_code == 201
-    assert (
-        await client.post('/api/auth/token/password', data={'username': '13800000000', 'password': 'long-password-123'})
-    ).status_code == 200
-
-    # 已有手机号登录保持原账号身份，不产生重复账号
-    assert (
-        await client.post(
-            '/api/auth/verification-codes/cellphone', json={'cellphone': '13800000000', 'purpose': 'login'}
-        )
-    ).status_code == 200
-    response = await client.post(
-        '/api/auth/token/cellphone', json={'cellphone': '13800000000', 'verification_code': sender.sent[-1][1]}
-    )
-    assert response.status_code == 200
-    existing = TokenSc.model_validate_json(response.content)
-    me = await client.get('/api/users/me', headers={'Authorization': f'Bearer {existing.access_token}'})
-    assert me.json()['username'] == 'phone-owner'
-
-    # 对外的并发登录验证一次性消费，使用真实Redis执行验证码脚本
-    assert (
-        await client.post(
-            '/api/auth/verification-codes/cellphone', json={'cellphone': '13900000000', 'purpose': 'login'}
-        )
-    ).status_code == 200
-    login = {'cellphone': '13900000000', 'verification_code': sender.sent[-1][1]}
-    responses = await asyncio.gather(
-        client.post('/api/auth/token/cellphone', json=login), client.post('/api/auth/token/cellphone', json=login)
-    )
-    assert sorted(response.status_code for response in responses) == [200, 422]
-    token = TokenSc.model_validate_json(next(response.content for response in responses if response.status_code == 200))
-    me = await client.get('/api/users/me', headers={'Authorization': f'Bearer {token.access_token}'})
-    assert me.json()['username'].startswith('u_') and me.json()['is_admin'] is False
+    # 软删除同样禁止认证，但已有有效token仍可主动退出
     async with application.resources.session_factory() as session:
-        assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 2
+        user = await session.get(UserModel, user_id)
+        assert user is not None
+        user.state = 'enabled'
+        user.delete()
+        await session.commit()
+    assert (await client.post('/api/auth/password/token', json=login)).status_code == 401
+    assert (await client.delete('/api/auth/token', headers=second)).status_code == 200
 
 
-async def test_concurrent_registration_creates_one_identity(application: AppClient) -> None:
-    registration = {
-        'username': 'same-user',
-        'password': 'long-password-123',
-        'nickname': '并发注册',
-        'gender': 'unknown',
-    }
-    responses = await asyncio.gather(*[application.client.post('/api/users', json=registration) for _ in range(2)])
-    assert sorted(response.status_code for response in responses) == [201, 409]
+@pytest.mark.parametrize('kind', ['phone', 'email'])
+async def test_otp_only_delivery_ownership_and_reuse(app_factory: AppFactory, kind: Literal['phone', 'email']) -> None:
+    application = await app_factory(AUTH_MODULES=[f'{kind}_otp'], AUTH_CODE_SEND_INTERVAL_SECONDS=1)
+    client = application.client
+    sender = application.sms if kind == 'phone' else application.email
+    other = application.email if kind == 'phone' else application.sms
+    assert sender is not None and other is None
+    identifier = '13800000000' if kind == 'phone' else 'Owner@Example.com'
+    body = {kind: identifier}
+    base = f'/api/auth/{kind}'
+
+    # 外部拒绝不伪报成功，注册码不能当作登录证明
+    sender.fail = True
+    assert (await client.post(f'{base}/codes/register', json=body)).status_code == 503
+    assert not sender.sent
+    sender.fail = False
+    assert (await client.post(f'{base}/codes/register', json=body)).status_code == 200
+    register_code = sender.sent[-1][1]
+    assert (await client.post(f'{base}/token', json={**body, 'verification_code': register_code})).status_code == 422
+    assert (await client.post(f'{base}/codes/login', json=body)).status_code == 200
+    login = {**body, 'verification_code': sender.sent[-1][1]}
+
+    # 对外并发请求只允许消费一次，首次成功创建无密码普通账号
+    results = await asyncio.gather(client.post(f'{base}/token', json=login), client.post(f'{base}/token', json=login))
+    assert sorted(result.status_code for result in results) == [200, 422]
+    authorized = headers(next(result for result in results if result.status_code == 200))
+    me = await client.get('/api/users/me', headers=authorized)
+    user_id = me.json()['id']
+    assert me.status_code == 200 and me.json()['nickname'] == '新用户'
+    assert (await client.post(f'{base}/token', json=login)).status_code == 422
+    assert (
+        await client.post(
+            '/api/auth/register',
+            json={'identities': [{'kind': kind, 'identifier': identifier, 'verification_code': register_code}]},
+        )
+    ).status_code == 409
+
+    # 缩短已有可配置冷却以验证重登，不替换Redis时钟或算法
+    await asyncio.sleep(1.1)
+    assert (await client.post(f'{base}/codes/login', json=body)).status_code == 200
+    again = headers(await client.post(f'{base}/token', json={**body, 'verification_code': sender.sent[-1][1]}))
+    assert (await client.get('/api/users/me', headers=again)).json()['id'] == user_id
     async with application.resources.session_factory() as session:
         assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 1
+        assert await session.scalar(sa.select(sa.func.count()).select_from(PasswordCredentialModel)) == 0
+        identity = await session.scalar(sa.select(AuthIdentityModel))
+        assert identity is not None and identity.namespace == f'local/{kind}' and identity.verified_at is not None
+        assert identity.subject == identifier.lower()
+
+    assert (await client.post('/api/auth/password/token', json={})).status_code == 404
+    opposite = 'email' if kind == 'phone' else 'phone'
+    assert (await client.post(f'/api/auth/{opposite}/token', json={})).status_code == 404
+    schema = application.app.openapi()
+    assert '/api/auth/password/token' not in schema['paths']
+    assert f'/api/auth/{opposite}/token' not in schema['paths']
+    assert schema['components']['securitySchemes']['Bearer']['type'] == 'http'
 
 
-async def test_global_quota_is_shared_across_apps_and_routes(integration_settings: Settings) -> None:
-    # 独立客户端使用同一命名空间，业务配额必须共享
-    settings = integration_settings.model_copy(update={'APP_QPS': 2})
-    first, second = (
-        create_app(settings, sms_sender_factory=SmsRecorder),
-        create_app(settings, sms_sender_factory=SmsRecorder),
+async def test_phone_password_does_not_enable_phone_otp(app_factory: AppFactory) -> None:
+    application = await app_factory(AUTH_MODULES=['password'], AUTH_PASSWORD_IDENTIFIERS=['username', 'phone'])
+    client, sender = application.client, application.sms
+    assert sender is not None and application.email is None
+    assert (await client.post('/api/auth/phone/codes/register', json={'phone': '13800000000'})).status_code == 200
+    created = await client.post(
+        '/api/auth/register',
+        json={
+            'identities': [
+                {'kind': 'username', 'identifier': 'phone-owner'},
+                {'kind': 'phone', 'identifier': '13800000000', 'verification_code': sender.sent[-1][1]},
+            ],
+            'password': 'long-password-123',
+        },
     )
-    async with first.router.lifespan_context(first), second.router.lifespan_context(second):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=first), base_url='http://test') as a:
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=second), base_url='http://test') as b:
-                assert (await a.get('/api/users/me')).status_code == 401
-                assert (await b.get('/api/auth/token/status')).status_code == 401
-                response = await a.delete('/api/auth/token')
-                assert response.status_code == 429 and int(response.headers['Retry-After']) >= 1
-                assert (await b.get('/api/ping')).status_code == 200
+    assert created.status_code == 201
+    for kind, identifier in [('username', 'phone-owner'), ('phone', '13800000000')]:
+        authorized = headers(
+            await client.post(
+                '/api/auth/password/token',
+                json={'kind': kind, 'identifier': identifier, 'password': 'long-password-123'},
+            )
+        )
+        assert (await client.get('/api/users/me', headers=authorized)).json()['id'] == created.json()['id']
+    for path in ('/api/auth/phone/token', '/api/auth/phone/codes/login'):
+        assert (await client.post(path, json={})).status_code == 404
+        assert path not in application.app.openapi()['paths']
+
+
+async def test_initial_multi_identity_and_no_implicit_binding(app_factory: AppFactory) -> None:
+    application = await app_factory(
+        AUTH_MODULES=['password', 'phone_otp', 'email_otp'], AUTH_PASSWORD_IDENTIFIERS=['username', 'phone', 'email']
+    )
+    client, sms, email = application.client, application.sms, application.email
+    assert sms is not None and email is not None
+    assert (await client.post('/api/auth/phone/codes/register', json={'phone': '13800000000'})).status_code == 200
+    phone_code = sms.sent[-1][1]
+
+    # 手机证明不能消费邮箱域，即使注册输入结构正确
+    assert (
+        await client.post(
+            '/api/auth/register',
+            json={
+                'identities': [{'kind': 'email', 'identifier': 'Alice@Example.com', 'verification_code': phone_code}]
+            },
+        )
+    ).status_code == 422
+    assert (await client.post('/api/auth/email/codes/register', json={'email': 'Alice@Example.com'})).status_code == 200
+    registration = {
+        'identities': [
+            {'kind': 'username', 'identifier': 'alice'},
+            {'kind': 'phone', 'identifier': '13800000000', 'verification_code': phone_code},
+            {'kind': 'email', 'identifier': 'Alice@Example.com', 'verification_code': email.sent[-1][1]},
+        ],
+        'password': 'long-password-123',
+    }
+    created = await client.post('/api/auth/register', json=registration)
+    assert created.status_code == 201
+    user_id = created.json()['id']
+
+    # 三个密码入口和两个OTP入口共享同一用户，而非复制身份
+    for kind, identifier in [('username', 'alice'), ('phone', '13800000000'), ('email', 'ALICE@example.COM')]:
+        authorized = headers(
+            await client.post(
+                '/api/auth/password/token',
+                json={'kind': kind, 'identifier': identifier, 'password': 'long-password-123'},
+            )
+        )
+        assert (await client.get('/api/users/me', headers=authorized)).json()['id'] == user_id
+    for kind, identifier, sender in [('phone', '13800000000', sms), ('email', 'alice@example.com', email)]:
+        assert (await client.post(f'/api/auth/{kind}/codes/login', json={kind: identifier})).status_code == 200
+        authorized = headers(
+            await client.post(
+                f'/api/auth/{kind}/token', json={kind: identifier, 'verification_code': sender.sent[-1][1]}
+            )
+        )
+        assert (await client.get('/api/users/me', headers=authorized)).json()['id'] == user_id
+
+    # 占用身份的注册不能变成绑定新用户名或覆盖原密码
+    async with application.resources.session_factory() as session:
+        credential = await session.get(PasswordCredentialModel, UUID(user_id))
+        assert credential is not None
+        original_hash = credential.password_hash
+    assert (
+        await client.post(
+            '/api/auth/register',
+            json={
+                'identities': [
+                    {'kind': 'username', 'identifier': 'injected'},
+                    {'kind': 'phone', 'identifier': '13800000000', 'verification_code': phone_code},
+                ],
+                'password': 'attacker-password-123',
+            },
+        )
+    ).status_code == 409
+    async with application.resources.session_factory() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 1
+        assert await session.scalar(sa.select(sa.func.count()).select_from(AuthIdentityModel)) == 3
+        credential = await session.get(PasswordCredentialModel, UUID(user_id))
+        assert credential is not None and credential.password_hash == original_hash
+
+
+async def test_concurrent_registration_is_atomic(app_factory: AppFactory) -> None:
+    application = await app_factory(AUTH_MODULES=['password'])
+    registration = {'identities': [{'kind': 'username', 'identifier': 'same-user'}], 'password': 'long-password-123'}
+    results = await asyncio.gather(*[
+        application.client.post('/api/auth/register', json=registration) for _ in range(2)
+    ])
+    assert sorted(result.status_code for result in results) == [201, 409]
+    async with application.resources.session_factory() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 1
+        assert await session.scalar(sa.select(sa.func.count()).select_from(AuthIdentityModel)) == 1
+        assert await session.scalar(sa.select(sa.func.count()).select_from(PasswordCredentialModel)) == 1
+
+
+async def test_custom_module_alone_uses_public_core_contract(app_factory: AppFactory) -> None:
+    class StaffRequestSc(BaseSc):
+        subject: str = Field(pattern=r'^employee-[0-9]+$')
+        proof: SecretStr
+
+    def staff(settings: Settings) -> AuthModule:
+        router = APIRouter(prefix='/auth/staff')
+
+        @router.post('/token', response_model=TokenSc, dependencies=[Depends(firewall_deps.verify_login_limit)])
+        async def login(
+            request: Request, data: StaffRequestSc, session: Annotated[AsyncSession, Depends(database_deps.get_db)]
+        ) -> TokenSc:
+            # 仅测试接入契约：固定测试证明不进入生产源码
+            if not hmac.compare_digest(data.proof.get_secret_value(), 'test-provider-verified-proof'):
+                raise AuthenticationError()
+            user = await resolve_verified_user(
+                session,
+                PreparedIdentity(namespace='test/staff/acme', subject=data.subject, verified_at=datetime.now(UTC)),
+            )
+            return create_token_response_from_user(user, get_jwt_settings(request))
+
+        return AuthModule('staff', router, uses_local_tokens=True)
+
+    application = await app_factory(
+        AUTH_MODULES=['staff'], AUTH_CODE_SECRET_KEY=None, factories=[AuthModuleFactory('staff', staff)]
+    )
+    client = application.client
+    assert (
+        await client.post('/api/auth/staff/token', json={'subject': 'employee-42', 'proof': 'wrong'})
+    ).status_code == 401
+    credentials = {'subject': 'employee-42', 'proof': 'test-provider-verified-proof'}
+    first = headers(await client.post('/api/auth/staff/token', json=credentials))
+    second = headers(await client.post('/api/auth/staff/token', json=credentials))
+    assert (await client.get('/api/users/me', headers=first)).json()['id'] == (
+        await client.get('/api/users/me', headers=second)
+    ).json()['id']
+    assert application.sms is None and application.email is None
+    paths = application.app.openapi()['paths']
+    for path in ('/api/auth/register', '/api/auth/password/token', '/api/auth/phone/token', '/api/auth/email/token'):
+        assert (await client.post(path, json={})).status_code == 404 and path not in paths
+    async with application.resources.session_factory() as session:
+        identity = await session.scalar(sa.select(AuthIdentityModel))
+        assert identity is not None and identity.namespace == 'test/staff/acme'
+        assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 1
+        assert await session.scalar(sa.select(sa.func.count()).select_from(PasswordCredentialModel)) == 0
+
+
+async def test_global_quota_shared_between_apps(app_factory: AppFactory) -> None:
+    first = await app_factory(AUTH_MODULES=['password'], APP_QPS=2)
+    second = await app_factory(AUTH_MODULES=['password'], APP_QPS=2)
+    assert (await first.client.get('/api/users/me')).status_code == 401
+    assert (await second.client.get('/api/auth/token/status')).status_code == 401
+    limited = await first.client.delete('/api/auth/token')
+    assert limited.status_code == 429 and int(limited.headers['Retry-After']) >= 1
+    assert (await second.client.get('/api/ping')).status_code == 200

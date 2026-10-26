@@ -1,8 +1,9 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import secrets
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Literal, cast
 
 from pydantic import TypeAdapter
@@ -11,15 +12,14 @@ from redis.asyncio import Redis
 from app.exceptions import (
     ApiError,
     DependencyUnavailableError,
-    InvalidCellphoneCodeError,
+    EmailSendError,
+    InvalidVerificationCodeError,
     SmsSendError,
-    SmsUnavailableError,
     TooManyRequestsError,
 )
 from app.providers.rate_limiter_provider import Limiter
-from app.services.sms.sms_sender import SmsSender
 from app.support.string_helper import numeric_random
-from config.settings import Settings
+from config.auth import CodeSettings
 
 Purpose = Literal['register', 'login']
 _INT = TypeAdapter(int)
@@ -42,44 +42,45 @@ return 0
 """
 
 
-def _identity(settings: Settings, cellphone: str, purpose: Purpose) -> str:
-    secret = settings.SMS_CODE_SECRET_KEY
-    if not settings.SMS_ENABLED or secret is None:
-        raise SmsUnavailableError()
-    return hmac.new(secret.get_secret_value().encode(), f'{purpose}:{cellphone}'.encode(), hashlib.sha256).hexdigest()
-
-
-def _digest(settings: Settings, identity: str, generation: str, code: str) -> str:
-    secret = settings.SMS_CODE_SECRET_KEY
-    if secret is None:
-        raise SmsUnavailableError()
+def _identity(settings: CodeSettings, namespace: str, channel: str, recipient: str, purpose: Purpose) -> str:
+    message = json.dumps(
+        [settings.REDIS_KEY_PREFIX, namespace, channel, purpose, recipient], separators=(',', ':'), ensure_ascii=True
+    )
     return hmac.new(
-        secret.get_secret_value().encode(), f'{identity}:{generation}:{code}'.encode(), hashlib.sha256
+        settings.AUTH_CODE_SECRET_KEY.get_secret_value().encode(), message.encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def _digest(settings: CodeSettings, identity: str, generation: str, code: str) -> str:
+    return hmac.new(
+        settings.AUTH_CODE_SECRET_KEY.get_secret_value().encode(),
+        f'{identity}:{generation}:{code}'.encode(),
+        hashlib.sha256,
     ).hexdigest()
 
 
 async def send_code(
     redis: Redis,
     limiter: Limiter,
-    settings: Settings,
-    sender: SmsSender | None,
+    settings: CodeSettings,
+    deliver: Callable[[str], Awaitable[None]],
     *,
-    cellphone: str,
+    namespace: str,
+    channel: str,
+    recipient: str,
     purpose: Purpose,
     client_ip: str,
 ) -> None:
     """供应商接受且新challenge确认发布后才成功；超时结果可能未知"""
-    identity = _identity(settings, cellphone, purpose)
-    if sender is None:
-        raise SmsUnavailableError()
+    identity = _identity(settings, namespace, channel, recipient, purpose)
 
     # 配额按固定顺序消耗，后续拒绝或发送失败不补偿前面额度
-    await limiter.hit(5, 60, 'sms:ip:minute', client_ip)
-    await limiter.hit(20, 3600, 'sms:ip:hour', client_ip)
-    await limiter.hit(5, 3600, 'sms:phone:hour', identity)
-    base = f'{settings.REDIS_KEY_PREFIX}:sms:{identity}'
+    await limiter.hit(5, 60, 'auth-code:ip:minute', client_ip)
+    await limiter.hit(20, 3600, 'auth-code:ip:hour', client_ip)
+    await limiter.hit(5, 3600, 'auth-code:recipient:hour', identity)
+    base = f'{settings.REDIS_KEY_PREFIX}:auth-code:{identity}'
     owner = secrets.token_hex(16)
-    if not await redis.set(f'{base}:cooldown', owner, ex=settings.SMS_SEND_INTERVAL_SECONDS, nx=True):
+    if not await redis.set(f'{base}:cooldown', owner, ex=settings.AUTH_CODE_SEND_INTERVAL_SECONDS, nx=True):
         ttl = _INT.validate_python(
             await cast(Awaitable[object], redis.eval("return redis.call('TTL', KEYS[1])", 1, f'{base}:cooldown'))
         )
@@ -96,9 +97,7 @@ async def send_code(
     code = numeric_random(6)
     try:
         async with asyncio.timeout(10):
-            await sender.send_verification_code(
-                cellphone=cellphone, code=code, purpose=purpose, expires_in=settings.SMS_CODE_TTL_SECONDS
-            )
+            await deliver(code)
         published = await cast(
             Awaitable[object],
             redis.eval(
@@ -108,7 +107,7 @@ async def send_code(
                 f'{base}:challenge',
                 owner,
                 _digest(settings, identity, owner, code),
-                settings.SMS_CODE_TTL_SECONDS,
+                settings.AUTH_CODE_TTL_SECONDS,
             ),
         )
         if _INT.validate_python(published) != 1:
@@ -122,28 +121,30 @@ async def send_code(
                 cleanup.cancel()
                 await asyncio.gather(cleanup, return_exceptions=True)
         raise
-    except (SmsSendError, TimeoutError):
+    except (SmsSendError, EmailSendError, TimeoutError):
         await release_owned()
-        raise ApiError(503, 'SMS_SEND_ERROR', '短信发送未能确认成功') from None
+        raise ApiError(503, 'CODE_SEND_ERROR', '验证码发送未能确认成功') from None
     except Exception:
         await release_owned()
         raise
 
 
-async def verify_code(redis: Redis, settings: Settings, *, cellphone: str, code: str, purpose: Purpose) -> None:
+async def verify_code(
+    redis: Redis, settings: CodeSettings, *, namespace: str, channel: str, recipient: str, code: str, purpose: Purpose
+) -> None:
     """原子验证并消费当前challenge，旧版本操作不影响重发后的状态"""
-    identity = _identity(settings, cellphone, purpose)
-    key = f'{settings.REDIS_KEY_PREFIX}:sms:{identity}:challenge'
+    identity = _identity(settings, namespace, channel, recipient, purpose)
+    key = f'{settings.REDIS_KEY_PREFIX}:auth-code:{identity}:challenge'
     generation = await cast(Awaitable[str | None], redis.hget(key, 'generation'))
     if generation is None:
-        raise InvalidCellphoneCodeError()
+        raise InvalidVerificationCodeError()
 
     # 比较版本与摘要、累计错误及消费在同一脚本中完成
     result = await cast(
         Awaitable[object],
         redis.eval(
-            _CONSUME, 1, key, generation, _digest(settings, identity, generation, code), settings.SMS_CODE_MAX_ATTEMPTS
+            _CONSUME, 1, key, generation, _digest(settings, identity, generation, code), settings.AUTH_CODE_MAX_ATTEMPTS
         ),
     )
     if _INT.validate_python(result) != 1:
-        raise InvalidCellphoneCodeError()
+        raise InvalidVerificationCodeError()

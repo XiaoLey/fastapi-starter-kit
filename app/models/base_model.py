@@ -20,7 +20,7 @@ def load_sql(filename: str) -> str:
 class Base(AsyncAttrs, MappedAsDataclass, DeclarativeBase):  # pyright: ignore[reportUnsafeMultipleInheritance]
     @classmethod
     def get_init_sql_alembic_ddls(cls) -> list[DDL]:
-        # 历史初始化所需扩展保持登记，不因UUID默认值替换而删扩展
+        # 初始化扩展与公共更新时间触发器
         extensions = ('hstore', 'pg_trgm', 'unaccent', 'uuid-ossp', 'btree_gin', 'btree_gist', 'fuzzystrmatch')
         entities = [
             DDL(

@@ -47,21 +47,14 @@ class UserAlreadyExistsError(ApiError):
     """账号标识已被历史记录占用"""
 
     def __init__(self) -> None:
-        super().__init__(409, 'USER_ALREADY_EXISTS_ERROR', '用户名或手机号已被占用')
+        super().__init__(409, 'USER_ALREADY_EXISTS_ERROR', '认证身份已被占用')
 
 
-class InvalidCellphoneCodeError(ApiError):
+class InvalidVerificationCodeError(ApiError):
     """验证码错误、过期或已消费"""
 
     def __init__(self) -> None:
-        super().__init__(422, 'INVALID_CELLPHONE_CODE_ERROR', '手机验证码无效')
-
-
-class SmsUnavailableError(ApiError):
-    """应用未启用短信能力"""
-
-    def __init__(self) -> None:
-        super().__init__(503, 'SMS_UNAVAILABLE', '短信服务未启用')
+        super().__init__(422, 'INVALID_VERIFICATION_CODE_ERROR', '验证码无效')
 
 
 class TooManyRequestsError(ApiError):
@@ -79,4 +72,8 @@ class InvalidFileNameError(ApiError):
 
 
 class SmsSendError(Exception):
-    """供应商未能确认接受发送；异常内容不得直接返回或记录"""
+    """短信供应商未确认接受；异常内容不得直接返回或记录"""
+
+
+class EmailSendError(Exception):
+    """邮件供应商未确认接受；异常内容不得直接返回或记录"""

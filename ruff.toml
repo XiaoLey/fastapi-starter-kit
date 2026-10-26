@@ -4,7 +4,7 @@ indent-width = 4    # tab每次缩进所用的空格数
 
 # 文档不参与检查与格式化：ruff 会重排 .md 里 ```python 代码块
 # 用 extend-exclude 而非 exclude，后者会覆盖掉 .venv/build/dist 等默认排除项
-extend-exclude = ["*.md", "migrations/versions/883992f5b42f_init.py"]
+extend-exclude = ["*.md"]
 
 [lint]
 # 选择要检查的规则

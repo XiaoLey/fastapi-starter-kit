@@ -9,18 +9,18 @@ from app.models.user import UserModel
 from app.schemas.jwt import JWTSc
 from app.schemas.token import TokenSc
 from app.support import jwt_helper
-from config.settings import Settings
+from config.auth import JwtSettings
 
 
-def create_token_response_from_user(user: UserModel, settings: Settings) -> TokenSc:
+def create_token_response_from_user(user: UserModel, settings: JwtSettings) -> TokenSc:
     return TokenSc(expires_in=settings.JWT_TTL * 60, access_token=jwt_helper.create_access_token(user.id, settings))
 
 
-def revocation_key(token: str, settings: Settings) -> str:
+def revocation_key(token: str, settings: JwtSettings) -> str:
     return f'{settings.REDIS_KEY_PREFIX}:revoked:{hashlib.sha256(token.encode()).hexdigest()}'
 
 
-async def validate_token(token: str, redis: Redis, settings: Settings) -> JWTSc:
+async def validate_token(token: str, redis: Redis, settings: JwtSettings) -> JWTSc:
     """先验签再查询吊销，基础设施故障不当作身份无效"""
     payload = jwt_helper.get_payload_by_token(token, settings)
     if await redis.exists(revocation_key(token, settings)):
@@ -28,7 +28,7 @@ async def validate_token(token: str, redis: Redis, settings: Settings) -> JWTSc:
     return payload
 
 
-async def cancel_token(token: str, redis: Redis, settings: Settings) -> None:
+async def cancel_token(token: str, redis: Redis, settings: JwtSettings) -> None:
     payload = await validate_token(token, redis, settings)
     remaining = payload.exp - datetime.now(UTC).timestamp()
     await redis.set(revocation_key(token, settings), 'invalid', ex=max(1, math.ceil(remaining)))

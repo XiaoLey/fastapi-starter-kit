@@ -1,8 +1,10 @@
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import URL
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.conftest import migrate
@@ -10,69 +12,85 @@ from tests.conftest import migrate
 pytestmark = pytest.mark.integration
 
 
-async def test_legacy_upgrade_and_reversible_data(database_url: URL, tmp_path: Path) -> None:
-    # 从其他工作目录迁移，保留旧数据贯穿升级、降级、再次升级
-    await migrate(database_url, target='883992f5b42f', cwd=tmp_path)
-    engine = create_async_engine(database_url, poolclass=sa.pool.NullPool)
+async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, tmp_path: Path) -> None:
+    await migrate(database_url, cwd=tmp_path)
+    await migrate(database_url, 'check')
+    engine = create_async_engine(database_url, poolclass=sa.pool.NullPool, hide_parameters=True)
     try:
+        # 用户主体没有认证列，默认值和更新时间由真实数据库保证
         async with engine.begin() as connection:
-            identity = await connection.scalar(
+            columns = set(
+                (
+                    await connection.scalars(
+                        sa.text("SELECT column_name FROM information_schema.columns WHERE table_name='users'")
+                    )
+                ).all()
+            )
+            assert not {'username', 'cellphone', 'password'}.intersection(columns)
+            first = await connection.scalar(
                 sa.text(
-                    'INSERT INTO users (username,nickname,gender,cellphone,avatar,is_admin) '
-                    "VALUES ('legacy','旧账号','unknown','13800000000','',false) RETURNING id"
+                    "INSERT INTO users (nickname,gender,avatar,is_admin) VALUES ('用户一','unknown','',false) RETURNING id"
                 )
             )
-        await migrate(database_url)
-        async with engine.connect() as connection:
-            assert await connection.scalar(sa.text('SELECT id FROM users')) == identity
-        await migrate(database_url, 'check')
+            second = await connection.scalar(
+                sa.text(
+                    "INSERT INTO users (nickname,gender,avatar,is_admin) VALUES ('用户二','unknown','',false) RETURNING id"
+                )
+            )
+            before = await connection.scalar(sa.text('SELECT updated_at FROM users WHERE id=:id'), {'id': first})
+        async with engine.begin() as connection:
+            after = await connection.scalar(
+                sa.text("UPDATE users SET nickname='更新资料' WHERE id=:id RETURNING updated_at"), {'id': first}
+            )
+            assert after > before
 
-        # 只有全部账号均有手机号时才允许恢复旧schema
-        await migrate(database_url, 'downgrade', '883992f5b42f')
+            # 核心不限制每域一身份，域内归属唯一且不同域可重用subject
+            await connection.execute(
+                sa.text(
+                    'INSERT INTO auth_identities(user_id,namespace,subject) VALUES '
+                    "(:first,'staff/tenant-a','42'),(:first,'staff/tenant-a','badge-42'),(:second,'staff/tenant-b','42')"
+                ),
+                {'first': first, 'second': second},
+            )
+            await connection.execute(
+                sa.text("INSERT INTO password_credentials(user_id,password_hash) VALUES (:id,'test-credential')"),
+                {'id': first},
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    sa.text(
+                        "INSERT INTO auth_identities(user_id,namespace,subject) VALUES (:id,'staff/tenant-a','42')"
+                    ),
+                    {'id': second},
+                )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    sa.text("INSERT INTO auth_identities(user_id,namespace,subject) VALUES (:id,'other','orphan')"),
+                    {'id': uuid4()},
+                )
+
+        # 可信物理删除级联，不遗留凭据和身份
+        async with engine.begin() as connection:
+            await connection.execute(sa.text('DELETE FROM users WHERE id=:id'), {'id': first})
+            assert await connection.scalar(sa.text('SELECT count(*) FROM auth_identities')) == 1
+            assert await connection.scalar(sa.text('SELECT count(*) FROM password_credentials')) == 0
+
+        # 初始化必须完整逆向清理，原生enum不能留到下次建表
+        await migrate(database_url, 'downgrade', 'base', cwd=tmp_path)
         async with engine.connect() as connection:
-            assert await connection.scalar(sa.text('SELECT id FROM users')) == identity
+            assert await connection.scalar(sa.text("SELECT to_regclass('users')")) is None
             assert (
                 await connection.scalar(
-                    sa.text(
-                        "SELECT is_nullable FROM information_schema.columns WHERE table_name='users' AND column_name='cellphone'"
-                    )
+                    sa.text("SELECT count(*) FROM pg_type WHERE typname IN ('gender_type','user_state_type')")
                 )
-                == 'NO'
+                == 0
             )
-        await migrate(database_url)
+            assert await connection.scalar(sa.text("SELECT to_regprocedure('update_updated_at_column()')")) is None
+        await migrate(database_url, cwd=tmp_path)
         await migrate(database_url, 'check')
-    finally:
-        await engine.dispose()
-
-
-async def test_null_phone_refuses_downgrade_without_changing_data(database_url: URL) -> None:
-    await migrate(database_url)
-    engine = create_async_engine(database_url, poolclass=sa.pool.NullPool)
-    try:
-        # 绕过ORM默认值，连同无手机号账号一起验证数据库默认值和降级保护
-        async with engine.begin() as connection:
-            identity = await connection.scalar(
-                sa.text(
-                    'INSERT INTO users (username,nickname,gender,avatar,is_admin) '
-                    "VALUES ('no-phone','未绑定','unknown','',false) RETURNING id"
-                )
-            )
-            revision = await connection.scalar(sa.text('SELECT version_num FROM alembic_version'))
-        result = await migrate(database_url, 'downgrade', '883992f5b42f', check=False)
-        assert result.returncode != 0 and 'Cannot downgrade' in result.stderr
-
-        # 拒绝发生后，revision、schema和账号必须仍处于可用的head状态
         async with engine.connect() as connection:
-            assert await connection.scalar(sa.text('SELECT version_num FROM alembic_version')) == revision
-            assert await connection.scalar(sa.text('SELECT id FROM users WHERE cellphone IS NULL')) == identity
-            assert (
-                await connection.scalar(
-                    sa.text(
-                        "SELECT is_nullable FROM information_schema.columns WHERE table_name='users' AND column_name='cellphone'"
-                    )
-                )
-                == 'YES'
-            )
-        await migrate(database_url, 'check')
+            assert await connection.scalar(sa.text('SELECT count(*) FROM users')) == 0
     finally:
         await engine.dispose()

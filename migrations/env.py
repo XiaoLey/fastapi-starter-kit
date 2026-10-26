@@ -9,12 +9,7 @@ from sqlalchemy.schema import SchemaItem
 from app.models.base_model import Base
 from app.support.modules_helper import import_all_models
 from config.settings import load_settings
-from migrations.support import (
-    collect_ddls,
-    install_ddl_compatibility,
-    protect_nullable_downgrade,
-    register_project_ddls,
-)
+from migrations.support import collect_ddls, complete_initial_schema, install_ddl_compatibility, register_project_ddls
 
 config = context.config
 import_all_models('app.models', recursive=True)
@@ -42,7 +37,7 @@ def configure(connection: Connection | None = None) -> None:
         dialect_opts={'paramstyle': 'named'},
         compare_server_default=True,
         include_object=include_object,
-        process_revision_directives=protect_nullable_downgrade,
+        process_revision_directives=complete_initial_schema,
     )
 
 

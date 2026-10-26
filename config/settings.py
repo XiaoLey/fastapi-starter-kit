@@ -57,15 +57,16 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: SecretStr = SecretStr('')
     REDIS_KEY_PREFIX: str = Field(default='fastapi', min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_.:-]+$')
 
-    JWT_SECRET_KEY: SecretStr
+    AUTH_MODULES: list[str] = Field(default_factory=list)
+    AUTH_PASSWORD_IDENTIFIERS: list[str] = Field(default_factory=lambda: ['username'])
+    JWT_SECRET_KEY: SecretStr | None = None
     JWT_TTL: int = Field(default=30, ge=1)
     JWT_ISSUER: str = Field(default='fastapi-starter-kit', min_length=1)
     JWT_AUDIENCE: str = Field(default='api', min_length=1)
-    SMS_ENABLED: bool = False
-    SMS_CODE_SECRET_KEY: SecretStr | None = None
-    SMS_CODE_TTL_SECONDS: int = Field(default=300, ge=1)
-    SMS_CODE_MAX_ATTEMPTS: int = Field(default=5, ge=1)
-    SMS_SEND_INTERVAL_SECONDS: int = Field(default=60, ge=1)
+    AUTH_CODE_SECRET_KEY: SecretStr | None = None
+    AUTH_CODE_TTL_SECONDS: int = Field(default=300, ge=1)
+    AUTH_CODE_MAX_ATTEMPTS: int = Field(default=5, ge=1)
+    AUTH_CODE_SEND_INTERVAL_SECONDS: int = Field(default=60, ge=1)
 
     LOG_LEVEL: Literal['TRACE', 'DEBUG', 'INFO', 'SUCCESS', 'WARNING', 'ERROR', 'CRITICAL'] = 'INFO'
     LOG_PATH: str | None = None
@@ -87,7 +88,12 @@ class Settings(BaseSettings):
         addresses = _PROXY_ADAPTER.validate_python([part.strip() for part in value.split(',')])
         return ','.join(str(address) for address in addresses)
 
-    @field_validator('JWT_SECRET_KEY', 'SMS_CODE_SECRET_KEY')
+    @field_validator('JWT_SECRET_KEY', 'AUTH_CODE_SECRET_KEY', mode='before')
+    @classmethod
+    def empty_secret(cls, value: object) -> object:
+        return None if value == '' else value
+
+    @field_validator('JWT_SECRET_KEY', 'AUTH_CODE_SECRET_KEY')
     @classmethod
     def validate_secret(cls, value: SecretStr | None) -> SecretStr | None:
         if value is None:
@@ -102,10 +108,6 @@ class Settings(BaseSettings):
         # 浏览器凭据与宽泛来源不能同时启用
         if self.APP_CORS_ALLOW_CREDENTIALS and '*' in self.APP_CORS_ORIGINS:
             raise ValueError('Credentialed CORS requires explicit origins')
-        if self.SMS_ENABLED and self.SMS_CODE_SECRET_KEY is None:
-            raise ValueError('SMS requires a separate code secret')
-        if self.SMS_CODE_SECRET_KEY is not None and self.SMS_CODE_SECRET_KEY == self.JWT_SECRET_KEY:
-            raise ValueError('SMS and JWT secrets must differ')
 
         # 生产环境不能继承演示配置
         if self.APP_ENV == 'production':

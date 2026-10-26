@@ -9,21 +9,10 @@ from alembic.runtime.migration import MigrationContext
 from alembic_dddl.dddl import ddl_registry  # pyright: ignore[reportMissingTypeStubs]
 from alembic_dddl.src.models import DDL, RevisionedScript  # pyright: ignore[reportMissingTypeStubs]
 from alembic_dddl.src.ops import Script, SyncDDLOp  # pyright: ignore[reportMissingTypeStubs]
+from sqlalchemy import Enum
 
 from app.models.base_model import Base, TableModel, ViewModel
 from app.support.modules_helper import get_classes_inheriting_from_base
-
-_NULL_GUARD = """
-DO $guard$
-DECLARE invalid_count bigint;
-BEGIN
-    SELECT count(*) INTO invalid_count FROM users WHERE cellphone IS NULL;
-    IF invalid_count > 0 THEN
-        RAISE EXCEPTION 'Cannot downgrade: % users have NULL cellphone; resolve in a maintenance window', invalid_count;
-    END IF;
-END
-$guard$;
-"""
 
 
 def install_ddl_compatibility() -> None:
@@ -74,24 +63,47 @@ def register_project_ddls(entities: list[DDL]) -> None:
     ddl_registry.ddls[:] = entities
 
 
-def protect_nullable_downgrade(
+def complete_initial_schema(
     context: MigrationContext, revisions: Iterable[str | None], directives: list[ops.MigrationScript]
 ) -> None:
-    def restores_phone_not_null(container: ops.OpContainer) -> bool:
-        for operation in container.ops:
-            if isinstance(operation, ops.AlterColumnOp):
-                if (
-                    operation.table_name == 'users'
-                    and operation.column_name == 'cellphone'
-                    and operation.modify_nullable is False
-                ):
-                    return True
-            elif isinstance(operation, ops.OpContainer) and restores_phone_not_null(operation):
-                return True
-        return False
+    """初始化按依赖顺序创建和清理DDL及原生enum"""
+    if any(revisions):
+        return
 
-    # 保护来自生成源，而非生成后手改revision
+    # 模型附属DDL依赖表；全局扩展和函数先于表创建
+    initial_names = {entity.name for entity in Base.get_init_sql_alembic_ddls()}
+
+    def belongs_to_model(script: Script) -> bool:
+        return isinstance(script, (DDL, RevisionedScript)) and script.name not in initial_names
+
+    for directive in directives:
+        for upgrade in directive.upgrade_ops_list:
+            attached = [
+                operation
+                for operation in upgrade.ops
+                if isinstance(operation, SyncDDLOp) and belongs_to_model(operation.up_script)
+            ]
+            upgrade.ops[:] = [operation for operation in upgrade.ops if operation not in attached] + attached
+        for downgrade in directive.downgrade_ops_list:
+            attached = [
+                operation
+                for operation in downgrade.ops
+                if isinstance(operation, SyncDDLOp) and belongs_to_model(operation.down_script)
+            ]
+            downgrade.ops[:] = attached + [operation for operation in downgrade.ops if operation not in attached]
+
+    # PostgreSQL删表不会自动清除其命名enum，只处理初始化拥有的类型
+    names: set[str] = set()
+    quote = context.dialect.identifier_preparer.quote
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            type_ = column.type
+            if isinstance(type_, Enum) and type_.native_enum and type_.name:
+                name = quote(type_.name)
+                if isinstance(type_.schema, str):
+                    name = f'{quote(type_.schema)}.{name}'
+                names.add(name)
+
     for directive in directives:
         for downgrade in directive.downgrade_ops_list:
-            if restores_phone_not_null(downgrade):
-                downgrade.ops.insert(0, ops.ExecuteSQLOp(_NULL_GUARD))
+            downgrade.ops.extend(ops.ExecuteSQLOp(f'DROP TYPE IF EXISTS {name}') for name in sorted(names))

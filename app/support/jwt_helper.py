@@ -6,14 +6,14 @@ from pydantic import ValidationError
 
 from app.exceptions import InvalidTokenError, TokenExpiredError
 from app.schemas.jwt import JWTSc
-from config.settings import Settings
+from config.auth import JwtSettings
 
 _RESERVED = frozenset({'iss', 'aud', 'sub', 'exp', 'nbf', 'iat', 'jti'})
 
 
 def create_access_token(
     subject: UUID,
-    settings: Settings,
+    settings: JwtSettings,
     *,
     expires_delta: timedelta | None = None,
     additional_claims: dict[str, object] | None = None,
@@ -37,7 +37,7 @@ def create_access_token(
     return jwt.encode(payload, settings.JWT_SECRET_KEY.get_secret_value(), algorithm='HS256')
 
 
-def get_payload_by_token(token: str, settings: Settings) -> JWTSc:
+def get_payload_by_token(token: str, settings: JwtSettings) -> JWTSc:
     """验签并校验必需声明，所有凭据错误均属于身份错误"""
     try:
         payload = jwt.decode(

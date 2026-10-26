@@ -5,7 +5,8 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -15,13 +16,16 @@ from uuid import uuid4
 import httpx
 import pytest
 import redis.asyncio as redis
+from fastapi import FastAPI
 from pydantic import SecretStr
 from sqlalchemy import URL, pool
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.exceptions import SmsSendError
+from app.exceptions import EmailSendError, SmsSendError
 from app.providers.lifespan_provider import Resources
+from app.services.auth.local_auth_service import LocalResources
+from app.services.auth.modules import AuthModuleFactory
 from bootstrap.application import create_app
 from config.settings import PROJECT_ROOT, Settings
 
@@ -45,15 +49,27 @@ class SmsRecorder:
         self.closed = True
 
 
+class EmailRecorder:
+    """仅替代邮件供应商，验证码仍由真实服务生成和验证"""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, Literal['register', 'login']]] = []
+        self.fail = False
+        self.closed = False
+
+    async def send_verification_code(
+        self, *, email: str, code: str, purpose: Literal['register', 'login'], expires_in: int
+    ) -> None:
+        if self.fail:
+            raise EmailSendError('Test sender rejected delivery')
+        self.sent.append((email, code, purpose))
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
 def make_settings(**overrides: object) -> Settings:
-    return Settings.model_validate({
-        '_env_file': None,
-        'APP_ENV': 'test',
-        'JWT_SECRET_KEY': 'test-jwt-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        'SMS_CODE_SECRET_KEY': 'test-sms-key-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy',
-        'REDIS_KEY_PREFIX': 'test-unit',
-        **overrides,
-    })
+    return Settings.model_validate({'_env_file': None, 'APP_ENV': 'test', 'REDIS_KEY_PREFIX': 'test-unit', **overrides})
 
 
 def settings_environment(settings: Settings) -> dict[str, str]:
@@ -170,7 +186,6 @@ async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
         REDIS_PASSWORD=unquote(parsed.password or ''),
         REDIS_KEY_PREFIX=prefix,
         APP_QPS=1000,
-        SMS_ENABLED=True,
     )
     await migrate(database_url)
     try:
@@ -187,16 +202,45 @@ async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
 
 @dataclass
 class AppClient:
+    app: FastAPI
     client: httpx.AsyncClient
-    sender: SmsRecorder
     resources: Resources
+    sms: SmsRecorder | None
+    email: EmailRecorder | None
+
+
+AppFactory = Callable[..., Awaitable[AppClient]]
 
 
 @pytest.fixture
-async def application(integration_settings: Settings) -> AsyncIterator[AppClient]:
-    app = create_app(integration_settings, sms_sender_factory=SmsRecorder)
-    async with app.router.lifespan_context(app):
-        resources = cast(Resources, app.state.resources)
-        assert isinstance(resources.sms_sender, SmsRecorder)
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
-            yield AppClient(client, resources.sms_sender, resources)
+async def app_factory(integration_settings: Settings) -> AsyncIterator[AppFactory]:
+    async with AsyncExitStack() as stack:
+
+        async def open_app(*, factories: Sequence[AuthModuleFactory] | None = None, **overrides: object) -> AppClient:
+            # 所有应用共用本用例的真实服务，选择方式与密钥显式传入
+            settings = make_settings(**{
+                **integration_settings.model_dump(),
+                'JWT_SECRET_KEY': 'test-jwt-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                'AUTH_CODE_SECRET_KEY': 'test-code-key-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy',
+                **overrides,
+            })
+            app = create_app(
+                settings,
+                auth_module_factories=factories,
+                sms_sender_factory=SmsRecorder,
+                email_sender_factory=EmailRecorder,
+            )
+            await stack.enter_async_context(app.router.lifespan_context(app))
+            client = await stack.enter_async_context(
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test')
+            )
+
+            # 仅取实际创建的外部替身，零认证时不制造发送器实例
+            local = getattr(app.state, 'local_auth_resources', None)
+            sms = local.sms_sender if isinstance(local, LocalResources) else None
+            email = local.email_sender if isinstance(local, LocalResources) else None
+            assert sms is None or isinstance(sms, SmsRecorder)
+            assert email is None or isinstance(email, EmailRecorder)
+            return AppClient(app, client, cast(Resources, app.state.resources), sms, email)
+
+        yield open_app

@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass
 from typing import cast
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.providers import database_provider, httpx_provider, logging_provider, rate_limiter_provider
 from app.providers.rate_limiter_provider import Limiter
-from app.services.sms.sms_sender import SmsSender
+from app.services.auth.modules import AuthModule
 from config.settings import Settings
 
 
@@ -23,7 +23,6 @@ class Resources:
     redis_client: redis.Redis
     httpx_client: httpx.AsyncClient
     limiter: Limiter
-    sms_sender: SmsSender | None
 
 
 async def _close_stack(stack: AsyncExitStack) -> None:
@@ -55,14 +54,12 @@ async def _close_stack(stack: AsyncExitStack) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = cast(Settings, app.state.settings)
-    factory = cast(Callable[[], SmsSender] | None, app.state.sms_sender_factory)
+    modules = cast(tuple[AuthModule, ...], app.state.auth_modules)
     stack = AsyncExitStack()
     primary: BaseException | None = None
     try:
         # 日志属于进程，不由单个应用退出时关闭
         logging_provider.initialize(settings)
-        if settings.SMS_ENABLED and factory is None:
-            raise RuntimeError('SMS_ENABLED requires sms_sender_factory')
 
         # 每创建成功一个资源立即登记，失败路径也执行逆序收尾
         engine = database_provider.create_engine(settings)
@@ -76,17 +73,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         http_client = httpx_provider.create_client()
         stack.push_async_callback(http_client.aclose)
 
-        # 外部适配器先关闭，再关闭其可能使用的HTTP客户端
-        sender: SmsSender | None = None
-        if settings.SMS_ENABLED and factory is not None:
-            try:
-                sender = factory()
-            except Exception:
-                raise RuntimeError('SMS sender initialization failed') from None
-            stack.push_async_callback(sender.aclose)
         app.state.resources = Resources(
-            engine, database_provider.create_session_factory(engine), pool, redis_client, http_client, limiter, sender
+            engine, database_provider.create_session_factory(engine), pool, redis_client, http_client, limiter
         )
+
+        # 模块资源在基础资源之后创建，退出时先收尾且共享lifespan只运行一次
+        started: set[int] = set()
+        for module in modules:
+            if module.lifespan is not None and id(module.lifespan) not in started:
+                started.add(id(module.lifespan))
+                await stack.enter_async_context(module.lifespan(app))
         yield
     except BaseException as exc:
         primary = exc
