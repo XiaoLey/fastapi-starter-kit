@@ -1,11 +1,11 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping
 
 from fastapi import FastAPI
 from pydantic import ValidationError
 
 from app.providers import app_provider, exception_provider, middleware_provider, route_provider
 from app.providers.lifespan_provider import lifespan
-from app.services.auth.modules import AuthModuleFactory, resolve_modules
+from app.services.auth.modules import AuthFactory, resolve_modules
 from app.services.email.email_sender import EmailSender
 from app.services.sms.sms_sender import SmsSender
 from config.auth import JwtSettings
@@ -15,11 +15,18 @@ from config.settings import Settings, load_settings
 def create_app(
     settings: Settings | None = None,
     *,
-    auth_module_factories: Sequence[AuthModuleFactory] | None = None,
+    auth_module_factories: Mapping[str, AuthFactory] | None = None,
     sms_sender_factory: Callable[[], SmsSender] | None = None,
     email_sender_factory: Callable[[], EmailSender] | None = None,
 ) -> FastAPI:
-    """组装独立应用，运行资源仅在lifespan内创建"""
+    """组装独立应用，仅启用选中的认证，运行资源属于应用启动周期
+
+    Args:
+        settings: 省略时读取项目配置
+        auth_module_factories: 名称到构造函数的映射；省略时使用内置清单，空映射不注册任何方式
+        sms_sender_factory: 每轮启动创建新短信发送器的函数，仅需要该通道时调用
+        email_sender_factory: 每轮启动创建新邮件发送器的函数，仅需要该通道时调用
+    """
     settings = settings if settings is not None else load_settings()
 
     # 模块只解析一次，基础配置不强迫零认证应用提供密钥

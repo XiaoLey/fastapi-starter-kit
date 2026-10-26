@@ -23,6 +23,7 @@ class PhoneLoginSc(PhoneCodeRequestSc):
 
 
 def build_module(settings: Settings) -> AuthModule:
+    """构造手机验证码登录及其初始注册能力"""
     router = APIRouter(prefix='/auth/phone', tags=['手机验证码认证'])
 
     @router.post('/codes/login', response_model=BoolSc)
@@ -50,9 +51,9 @@ def build_module(settings: Settings) -> AuthModule:
         user = await resolve_verified_user(session, identity)
         return create_token_response_from_user(user, get_jwt_settings(request))
 
-    return AuthModule(
-        'phone_otp',
-        router,
+    return local_auth_service.LocalAuthModule(
+        router=router,
+        options=local_auth_service.LocalOptions(otp_identifiers=frozenset({'phone'})),
         uses_local_tokens=True,
         shared_router=registration_router,
         lifespan=local_auth_service.lifespan,

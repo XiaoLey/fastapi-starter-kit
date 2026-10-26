@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.exceptions import EmailSendError, SmsSendError
 from app.providers.lifespan_provider import Resources
 from app.services.auth.local_auth_service import LocalResources
-from app.services.auth.modules import AuthModuleFactory
+from app.services.auth.modules import AuthFactory
 from bootstrap.application import create_app
 from config.settings import PROJECT_ROOT, Settings
 
@@ -216,7 +216,7 @@ AppFactory = Callable[..., Awaitable[AppClient]]
 async def app_factory(integration_settings: Settings) -> AsyncIterator[AppFactory]:
     async with AsyncExitStack() as stack:
 
-        async def open_app(*, factories: Sequence[AuthModuleFactory] | None = None, **overrides: object) -> AppClient:
+        async def open_app(*, factories: Mapping[str, AuthFactory] | None = None, **overrides: object) -> AppClient:
             # 所有应用共用本用例的真实服务，选择方式与密钥显式传入
             settings = make_settings(**{
                 **integration_settings.model_dump(),

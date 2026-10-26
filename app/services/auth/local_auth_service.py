@@ -37,23 +37,26 @@ class LocalOptions(BaseModel):
         return frozenset(self.password_identifiers) | self.otp_identifiers
 
 
-def local_options(settings: Settings, modules: Sequence[AuthModule]) -> LocalOptions:
-    # 只聚合本地模块的贡献，自定义模块即使选用类似ID也不会被误认
-    selected = {module.id for module in modules if module.lifespan is lifespan}
-    try:
-        options = LocalOptions.model_validate({
-            'password_identifiers': settings.AUTH_PASSWORD_IDENTIFIERS if 'password' in selected else [],
-            'otp_identifiers': [kind for kind in ('phone', 'email') if f'{kind}_otp' in selected],
-        })
-    except ValidationError:
-        raise ValueError('Invalid built-in password identifiers') from None
-    if 'password' in selected and not options.password_identifiers:
-        raise ValueError('Password module requires at least one identifier')
-    return options
+@dataclass(frozen=True, kw_only=True)
+class LocalAuthModule(AuthModule):
+    """内置认证方式及其贡献的本地账号能力"""
+
+    options: LocalOptions
+
+
+def local_options(modules: Sequence[AuthModule]) -> LocalOptions:
+    """合并内置方式的注册能力，不将自定义模块的名称视为能力"""
+    local = [module.options for module in modules if isinstance(module, LocalAuthModule)]
+    return LocalOptions(
+        password_identifiers=list(dict.fromkeys(kind for options in local for kind in options.password_identifiers)),
+        otp_identifiers=frozenset(kind for options in local for kind in options.otp_identifiers),
+    )
 
 
 @dataclass
 class LocalResources:
+    """当前应用启动周期内的本地认证配置及交付资源"""
+
     options: LocalOptions
     code_settings: CodeSettings | None
     sms_sender: SmsSender | None
@@ -61,12 +64,14 @@ class LocalResources:
 
     @property
     def codes(self) -> CodeSettings:
+        """返回已启用的验证码配置，未启用时拒绝调用"""
         if self.code_settings is None:
             raise RuntimeError('Verification codes are not configured')
         return self.code_settings
 
 
 def get_local_resources(connection: HTTPConnection) -> LocalResources:
+    """取得当前应用的本地认证资源，未启动时拒绝调用"""
     resources = connection.app.state.local_auth_resources
     if not isinstance(resources, LocalResources):
         raise RuntimeError('Local authentication lifespan is not running')
@@ -75,9 +80,10 @@ def get_local_resources(connection: HTTPConnection) -> LocalResources:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """仅为已声明的本地能力提供资源，退出或启动失败均关闭已创建的发送器"""
     settings = cast(Settings, app.state.settings)
     modules = cast(tuple[AuthModule, ...], app.state.auth_modules)
-    options = local_options(settings, modules)
+    options = local_options(modules)
     contacts = options.registration_identifiers - {'username'}
 
     # 只有实际需要联系方式证明时才校验验证码密钥和发送器
@@ -93,6 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     async with AsyncExitStack() as stack:
         sms: SmsSender | None = None
         email: EmailSender | None = None
+        # 只创建需要的通道，成功后立即纳入当前周期的清理范围
         if 'phone' in contacts:
             sms_factory = cast(Callable[[], SmsSender] | None, app.state.sms_sender_factory)
             if sms_factory is None:
@@ -102,6 +109,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             except Exception:
                 raise RuntimeError('SMS sender initialization failed') from None
             stack.push_async_callback(sms.aclose)
+
         if 'email' in contacts:
             email_factory = cast(Callable[[], EmailSender] | None, app.state.email_sender_factory)
             if email_factory is None:
@@ -128,6 +136,7 @@ async def send_contact_code(
     purpose: verification_code_service.Purpose,
     client_ip: str,
 ) -> None:
+    """交付并发布已规范化接收者的验证码，正常返回不保证最终送达"""
     local = get_local_resources(connection)
     resources = get_resources(connection)
     codes = local.codes
@@ -166,6 +175,7 @@ async def verify_contact_code(
     code: str,
     purpose: verification_code_service.Purpose,
 ) -> None:
+    """验证并一次性消费接收者在指定通道及用途下的验证码"""
     await verification_code_service.verify_code(
         get_resources(connection).redis_client,
         get_local_resources(connection).codes,

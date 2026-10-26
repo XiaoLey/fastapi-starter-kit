@@ -159,7 +159,7 @@ def build_module(settings: Settings) -> AuthModule:
             raise ApiError(401, 'SERVICE_KEY_INVALID', '调用密钥无效', headers={'WWW-Authenticate': 'ApiKey'})
         return {'authenticated': True}
 
-    return AuthModule('service_key', router)
+    return AuthModule(router=router)
 ```
 
 按 README 第 3 节在 `api_app.py` 注册该 factory，在 `.env` 设置：
@@ -180,8 +180,8 @@ curl http://127.0.0.1:8000/api/service/check -H 'X-Service-Key: <SERVICE_API_KEY
 
 ### 自定义用户登录复用什么
 
-- `AuthModuleFactory(id, build)`：代码注册；AUTH_MODULES 是唯一启用选择。需同时保留内置模板时，注册清单加入 `app.http.auth_methods.builtin_factories()`
-- `AuthModule(id, router, uses_local_tokens=True)`：按需接入共用 JWT/status/logout/me；声明后必须配置 JWT_SECRET_KEY
+- `auth_module_factories={'my_auth': build_module}`：代码注册；AUTH_MODULES 是唯一启用选择。需同时保留内置模板时使用 `{**builtin_factories(), 'my_auth': build_module}`，其中 builtin_factories 来自 `app.http.auth_methods`
+- `AuthModule(router=router, uses_local_tokens=True)`：按需接入共用 JWT/status/logout/me；声明后必须配置 JWT_SECRET_KEY
 - `PreparedIdentity` + `resolve_verified_user`：完成真实上游证明验证后，按可信 namespace 与稳定 subject 解析/首次建号；不能相信客户端自报“已验证”
 - `create_account`：初始多身份及模块凭据在同一事务创建；凭据写入回调不能自己 commit。需要组合注册时由自己的请求模型编排，不修改全局三类注册模型
 - `create_token_response_from_user(user, get_jwt_settings(request))`：账号可用且事务成功后签发统一 token

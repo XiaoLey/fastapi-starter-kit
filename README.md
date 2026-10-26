@@ -119,10 +119,9 @@ curl -X DELETE http://127.0.0.1:8000/api/auth/token -H 'Authorization: Bearer <a
 
 ```python
 from app.http.auth_methods.service_key import build_module
-from app.services.auth.modules import AuthModuleFactory
 from bootstrap.application import create_app
 
-app = create_app(auth_module_factories=[AuthModuleFactory('service_key', build_module)])
+app = create_app(auth_module_factories={'service_key': build_module})
 ```
 
 随后设置 `AUTH_MODULES=["service_key"]`。这份注册清单可以不包含三个内置模块；需要同时保留时，再加入 `builtin_factories()`。不修改核心身份枚举，也不从环境变量动态导入代码。

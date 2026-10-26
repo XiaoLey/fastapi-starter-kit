@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import Field, SecretStr, TypeAdapter, ValidationInfo, field_validator
+from pydantic import Field, SecretStr, TypeAdapter, ValidationError, ValidationInfo, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import ApiError, AuthenticationError
@@ -38,6 +38,15 @@ class PasswordLoginSc(BaseSc):
 
 
 def build_module(settings: Settings) -> AuthModule:
+    """构造密码认证入口，所选密码标识必须非空、合法且不重复"""
+    try:
+        identifiers = TypeAdapter(Annotated[list[LocalKind], Field(min_length=1)]).validate_python(
+            settings.AUTH_PASSWORD_IDENTIFIERS
+        )
+        options = local_auth_service.LocalOptions(password_identifiers=identifiers)
+    except ValidationError:
+        raise ValueError('Invalid built-in password identifiers') from None
+
     router = APIRouter(prefix='/auth/password', tags=['密码认证'])
 
     @router.post('/token', response_model=TokenSc, dependencies=[Depends(firewall_deps.verify_login_limit)])
@@ -64,9 +73,9 @@ def build_module(settings: Settings) -> AuthModule:
             await session.commit()
         return create_token_response_from_user(user, get_jwt_settings(request))
 
-    return AuthModule(
-        'password',
-        router,
+    return local_auth_service.LocalAuthModule(
+        router=router,
+        options=options,
         uses_local_tokens=True,
         shared_router=registration_router,
         lifespan=local_auth_service.lifespan,

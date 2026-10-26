@@ -1,5 +1,8 @@
 import asyncio
 import hmac
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -7,7 +10,7 @@ from uuid import UUID
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from pydantic import Field, SecretStr
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +24,7 @@ from app.models.user import UserModel
 from app.schemas.base import BaseSc
 from app.schemas.token import TokenSc
 from app.services.auth.identity_service import PreparedIdentity, create_account, resolve_verified_user
-from app.services.auth.modules import AuthModule, AuthModuleFactory
+from app.services.auth.modules import AuthModule
 from app.services.auth.token_service import create_token_response_from_user
 from config.settings import Settings
 from tests.conftest import AppFactory
@@ -89,7 +92,28 @@ async def test_password_lifecycle_and_unavailable_account(app_factory: AppFactor
 
 @pytest.mark.parametrize('kind', ['phone', 'email'])
 async def test_otp_only_delivery_ownership_and_reuse(app_factory: AppFactory, kind: Literal['phone', 'email']) -> None:
-    application = await app_factory(AUTH_MODULES=[f'{kind}_otp'], AUTH_CODE_SEND_INTERVAL_SECONDS=1)
+    # 包装资源上下文并改注册名，不应改变内置方式贡献的能力
+    factories = None
+    module_id = f'{kind}_otp'
+    if kind == 'phone':
+        from app.http.auth_methods.phone_otp import build_module
+
+        def wrapped_phone(settings: Settings) -> AuthModule:
+            module = build_module(settings)
+            original = module.lifespan
+            assert original is not None
+
+            @asynccontextmanager
+            async def wrapped(app: FastAPI) -> AsyncGenerator[None]:
+                async with original(app):
+                    yield
+
+            return replace(module, lifespan=wrapped)
+
+        module_id = 'phone_alias'
+        factories = {module_id: wrapped_phone}
+
+    application = await app_factory(AUTH_MODULES=[module_id], factories=factories, AUTH_CODE_SEND_INTERVAL_SECONDS=1)
     client = application.client
     sender = application.sms if kind == 'phone' else application.email
     other = application.email if kind == 'phone' else application.sms
@@ -106,10 +130,18 @@ async def test_otp_only_delivery_ownership_and_reuse(app_factory: AppFactory, ki
     assert (await client.post(f'{base}/codes/register', json=body)).status_code == 200
     register_code = sender.sent[-1][1]
     assert (await client.post(f'{base}/token', json={**body, 'verification_code': register_code})).status_code == 422
+    if kind == 'phone':
+        # 别名模块仍可先完成初始注册，随后使用相同身份登录
+        assert (
+            await client.post(
+                '/api/auth/register',
+                json={'identities': [{'kind': kind, 'identifier': identifier, 'verification_code': register_code}]},
+            )
+        ).status_code == 201
     assert (await client.post(f'{base}/codes/login', json=body)).status_code == 200
     login = {**body, 'verification_code': sender.sent[-1][1]}
 
-    # 对外并发请求只允许消费一次，首次成功创建无密码普通账号
+    # 对外并发登录只消费一次，返回同一无密码普通账号
     results = await asyncio.gather(client.post(f'{base}/token', json=login), client.post(f'{base}/token', json=login))
     assert sorted(result.status_code for result in results) == [200, 422]
     authorized = headers(next(result for result in results if result.status_code == 200))
@@ -281,10 +313,10 @@ async def test_custom_module_alone_uses_public_core_contract(app_factory: AppFac
             )
             return create_token_response_from_user(user, get_jwt_settings(request))
 
-        return AuthModule('staff', router, uses_local_tokens=True)
+        return AuthModule(router=router, uses_local_tokens=True)
 
     application = await app_factory(
-        AUTH_MODULES=['staff'], AUTH_CODE_SECRET_KEY=None, factories=[AuthModuleFactory('staff', staff)]
+        AUTH_MODULES=['phone_otp'], AUTH_CODE_SECRET_KEY=None, factories={'phone_otp': staff}
     )
     client = application.client
     assert (
@@ -352,6 +384,7 @@ async def test_unrelated_constraints_do_not_hide_account_failure(app_factory: Ap
             assert getattr(from_credentials.value.orig, 'sqlstate', None) == state
             assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 0
             assert await session.scalar(sa.select(sa.func.count()).select_from(AuthIdentityModel)) == 0
+
 
 async def test_global_quota_shared_between_apps(app_factory: AppFactory) -> None:
     first = await app_factory(AUTH_MODULES=['password'], APP_QPS=2)

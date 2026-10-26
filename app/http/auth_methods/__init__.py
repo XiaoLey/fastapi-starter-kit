@@ -1,10 +1,10 @@
 """内置模板的可信注册入口；未选择的实现不参与装配"""
 
-from app.services.auth.modules import AuthModule, AuthModuleFactory
+from app.services.auth.modules import AuthFactory, AuthModule
 from config.settings import Settings
 
 
-def builtin_factories() -> tuple[AuthModuleFactory, ...]:
+def builtin_factories() -> dict[str, AuthFactory]:
     """返回可选模板；只有选中模块才构造其路由"""
 
     def password(settings: Settings) -> AuthModule:
@@ -22,8 +22,4 @@ def builtin_factories() -> tuple[AuthModuleFactory, ...]:
 
         return build_module(settings)
 
-    return (
-        AuthModuleFactory('password', password),
-        AuthModuleFactory('phone_otp', phone),
-        AuthModuleFactory('email_otp', email),
-    )
+    return {'password': password, 'phone_otp': phone, 'email_otp': email}

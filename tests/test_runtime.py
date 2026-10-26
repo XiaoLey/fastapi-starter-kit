@@ -7,7 +7,7 @@ from fastapi import APIRouter
 
 from app.providers.lifespan_provider import Resources
 from app.services.auth.local_auth_service import LocalResources
-from app.services.auth.modules import AuthModule, AuthModuleFactory
+from app.services.auth.modules import AuthModule
 from bootstrap.application import create_app
 from config.settings import Settings
 from tests.conftest import AppFactory, EmailRecorder, SmsRecorder, make_settings
@@ -40,12 +40,10 @@ def test_factory_defaults_to_no_auth_and_validates_module_selection() -> None:
         async def second() -> bool:
             return True
 
-        return AuthModule('custom', router)
+        return AuthModule(router=router)
 
     with pytest.raises(ValueError, match='Duplicate route'):
-        create_app(
-            make_settings(AUTH_MODULES=['custom']), auth_module_factories=[AuthModuleFactory('custom', duplicate)]
-        )
+        create_app(make_settings(AUTH_MODULES=['custom']), auth_module_factories={'custom': duplicate})
 
 
 async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle() -> None:
