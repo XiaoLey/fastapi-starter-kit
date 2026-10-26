@@ -71,7 +71,14 @@ async def send_code(
     purpose: Purpose,
     client_ip: str,
 ) -> None:
-    """供应商接受且新challenge确认发布后才成功；超时结果可能未知"""
+    """供应商接受且新challenge确认发布后才成功；超时结果可能未知
+
+    Args:
+        deliver: 接收新验证码的交付回调，正常返回表示供应商已接受
+        namespace: 身份归属域，与应用Redis前缀分别隔离
+        channel: 验证通道标识
+        recipient: 已由所属模块规范化的接收者
+    """
     identity = _identity(settings, namespace, channel, recipient, purpose)
 
     # 配额按固定顺序消耗，后续拒绝或发送失败不补偿前面额度
@@ -132,7 +139,14 @@ async def send_code(
 async def verify_code(
     redis: Redis, settings: CodeSettings, *, namespace: str, channel: str, recipient: str, code: str, purpose: Purpose
 ) -> None:
-    """原子验证并消费当前challenge，旧版本操作不影响重发后的状态"""
+    """原子验证并消费当前代验证码；旧版本操作不影响重发后的状态
+
+    Args:
+        recipient: 已由所属模块规范化的接收者，规则须与发送时一致
+
+    Raises:
+        InvalidVerificationCodeError: 验证码错误、过期或已消费
+    """
     identity = _identity(settings, namespace, channel, recipient, purpose)
     key = f'{settings.REDIS_KEY_PREFIX}:auth-code:{identity}:challenge'
     generation = await cast(Awaitable[str | None], redis.hget(key, 'generation'))

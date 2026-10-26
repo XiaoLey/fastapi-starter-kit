@@ -13,6 +13,7 @@ from config.auth import JwtSettings
 
 
 def create_token_response_from_user(user: UserModel, settings: JwtSettings) -> TokenSc:
+    """签发用户访问凭据，调用方须已确认账号可用及事务成功"""
     return TokenSc(expires_in=settings.JWT_TTL * 60, access_token=jwt_helper.create_access_token(user.id, settings))
 
 
@@ -29,6 +30,7 @@ async def validate_token(token: str, redis: Redis, settings: JwtSettings) -> JWT
 
 
 async def cancel_token(token: str, redis: Redis, settings: JwtSettings) -> None:
+    """吊销当前有效凭据，不要求所属用户仍启用；无效或已吊销的凭据被拒绝"""
     payload = await validate_token(token, redis, settings)
     remaining = payload.exp - datetime.now(UTC).timestamp()
     await redis.set(revocation_key(token, settings), 'invalid', ex=max(1, math.ceil(remaining)))

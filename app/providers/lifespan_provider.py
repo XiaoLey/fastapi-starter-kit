@@ -17,6 +17,8 @@ from config.settings import Settings
 
 @dataclass
 class Resources:
+    """单个应用启动周期拥有的基础资源，不能跨应用共享或退出后复用"""
+
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
     redis_pool: redis.ConnectionPool
@@ -53,6 +55,7 @@ async def _close_stack(stack: AsyncExitStack) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """为当前应用提供独立资源，正常退出、取消或启动失败均执行收尾"""
     settings = cast(Settings, app.state.settings)
     modules = cast(tuple[AuthModule, ...], app.state.auth_modules)
     stack = AsyncExitStack()

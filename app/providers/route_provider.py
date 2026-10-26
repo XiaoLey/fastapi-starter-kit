@@ -12,6 +12,7 @@ from config.settings import Settings
 
 
 def boot(app: FastAPI, settings: Settings, modules: Sequence[AuthModule]) -> None:
+    """装配普通业务和已选认证，拒绝重复的HTTP方法/路径及WS路径"""
     # 健康路由独立装配，不继承业务基础设施依赖
     business = APIRouter(
         dependencies=[Depends(verify_ip_banned), Depends(verify_app_limit)],

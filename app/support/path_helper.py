@@ -13,7 +13,7 @@ _DEVICES = {'CON', 'PRN', 'AUX', 'NUL'} | {f'{prefix}{n}' for prefix in ('COM', 
 
 
 def check_file_name_safty(file_name: str, base_dir: str) -> str:
-    """返回基目录内的相对路径；不解码URL，也不保证后续打开免于TOCTOU"""
+    """返回基目录范围内解析后的绝对路径；不解码URL，也不保证后续打开免于TOCTOU"""
     try:
         _LOCAL.validate_python(file_name)
     except ValidationError:

@@ -13,6 +13,8 @@ from app.services.auth.token_service import validate_token
 
 
 class HTTPBearerWithWebSocket(HTTPBearer):
+    """从HTTP/WS Authorization头提取Bearer凭据，不负责验签"""
+
     @override
     async def __call__(self, connection: HTTPConnection) -> HTTPAuthorizationCredentials | None:
         scheme, token = get_authorization_scheme_param(connection.headers.get('Authorization'))
@@ -46,12 +48,14 @@ async def _user_for_token(connection: HTTPConnection, token: str) -> UserModel:
 
 
 async def get_auth_user(connection: HTTPConnection, token: Annotated[str, Depends(require_token)]) -> UserModel:
+    """返回当前可用用户，结果不持有活动数据库会话"""
     return await _user_for_token(connection, token)
 
 
 async def get_auth_user_dirty(
     connection: HTTPConnection, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
 ) -> UserModel | None:
+    """缺失或无效凭据返回None，基础设施失败仍向调用方传播"""
     get_jwt_settings(connection)
     if credentials is None:
         return None

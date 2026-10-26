@@ -29,6 +29,7 @@ def import_all_models(
 def get_attributes_from_all_modules(
     module_path: str, attribute_name: str, *, exclude_filenames: Sequence[str] = ()
 ) -> dict[str, object]:
+    """递归收集指定属性，结果以模块全名为键，缺失属性的模块省略"""
     attributes: dict[str, object] = {}
     for module in import_all_models(module_path, recursive=True, exclude_filenames=exclude_filenames):
         if attribute_name in vars(module):
@@ -37,6 +38,7 @@ def get_attributes_from_all_modules(
 
 
 def execute_function_in_all_modules(module_path: str, function_name: str, *args: object, **kwargs: object) -> None:
+    """执行各模块存在的同名可调用属性，失败向调用方传播"""
     for function in get_attributes_from_all_modules(module_path, function_name).values():
         if not callable(function):
             raise TypeError(f'{function_name} must be callable')
@@ -46,6 +48,11 @@ def execute_function_in_all_modules(module_path: str, function_name: str, *args:
 def get_classes_inheriting_from_base[T](
     module_path: str, base_class: type[T], exclude_filenames: Sequence[str] = (), include_base_class: bool = False
 ) -> dict[str, dict[str, type[T]]]:
+    """递归收集继承指定基类、且定义归属扫描模块的类
+
+    Returns:
+        模块全名到“模块内绑定名→类型”的映射；不收集重新导出的外部类，空模块省略
+    """
     classes: dict[str, dict[str, type[T]]] = {}
     for module in import_all_models(module_path, recursive=True, exclude_filenames=exclude_filenames):
         # 只收集定义归属本模块的类，避免再次登记导入的别名

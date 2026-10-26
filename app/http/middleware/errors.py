@@ -22,7 +22,7 @@ class _State:
 
 
 class ExceptionBoundary:
-    """按实际ASGI消息处理未捕获错误，不在已开始响应后重发HTTP"""
+    """统一HTTP/WS未捕获错误，保护已开始的HTTP响应和已关闭的连接"""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -40,6 +40,7 @@ class ExceptionBoundary:
             return message
 
         async def tracked_send(message: Message) -> None:
+            # 发送前记录协议状态，失败后不能尝试第二次响应
             kind = message['type']
             if kind == 'websocket.accept':
                 state.accepted = True
@@ -51,6 +52,8 @@ class ExceptionBoundary:
                 state.denial_complete = True
             elif kind == 'http.response.start':
                 state.response_started = True
+
+            # 底层连接失败只标记断连，不再构造错误响应
             try:
                 await send(message)
             except OSError:
@@ -75,6 +78,7 @@ class ExceptionBoundary:
                 log_failure(exc)
                 error = ApiError(500, 'UNKNOWN_ERROR', '内部服务错误')
 
+            # HTTP错误不能覆盖已发送内容或向已断开的连接写入
             if scope['type'] == 'http':
                 if not state.response_started and not state.disconnected:
                     await error_response(error)(scope, receive, send)
@@ -84,14 +88,17 @@ class ExceptionBoundary:
             if state.closed or state.disconnected or state.denial_complete:
                 return
             try:
+                # 已开始拒绝握手时只结束原响应
                 if state.denial_started:
                     await tracked_send({'type': 'websocket.http.response.body', 'body': b'', 'more_body': False})
                 elif state.accepted:
+                    # 已建立连接通过关闭帧报告失败
                     code = 1011 if error.status_code >= 500 else 1008
                     if error.status_code == 503:
                         code = 1013
                     await tracked_send({'type': 'websocket.close', 'code': code, 'reason': error.code})
                 elif 'websocket.http.response' in scope.get('extensions', {}):
+                    # 支持拒绝扩展时保留标准HTTP错误状态
                     await error_response(error)(scope, receive, tracked_send)
                 else:
                     await tracked_send({'type': 'websocket.close', 'code': 1008, 'reason': error.code})

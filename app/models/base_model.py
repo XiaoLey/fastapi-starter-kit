@@ -18,6 +18,8 @@ def load_sql(filename: str) -> str:
 
 
 class Base(AsyncAttrs, MappedAsDataclass, DeclarativeBase):  # pyright: ignore[reportUnsafeMultipleInheritance]
+    """共享声明式元数据的模型根类，不预设表的生命周期字段"""
+
     @classmethod
     def get_init_sql_alembic_ddls(cls) -> list[DDL]:
         # 初始化扩展与公共更新时间触发器
@@ -54,10 +56,14 @@ class Base(AsyncAttrs, MappedAsDataclass, DeclarativeBase):  # pyright: ignore[r
 
 
 class ViewModel(Base):
+    """视图模型的声明基类，不提供表级生命周期字段"""
+
     __abstract__ = True
 
 
 class TableModel(Base):
+    """带UUID、审计时间和软删除状态的表基类；时间字段写入刷新后可用"""
+
     __abstract__ = True
     __mapper_args__ = {'eager_defaults': True}
 
@@ -81,10 +87,12 @@ class TableModel(Base):
 
     @classmethod
     async def get(cls, session: AsyncSession, pk: uuid.UUID) -> Self | None:
+        """按主键读取记录，不隐式排除已归档记录"""
         return await session.get(cls, pk)
 
     @classmethod
     async def get_one(cls, session: AsyncSession, condition: ColumnElement[bool]) -> Self | None:
+        """读取一个匹配记录，不隐式排除已归档记录"""
         return await session.scalar(sa.select(cls).where(condition).limit(1))
 
     @classmethod
@@ -101,10 +109,12 @@ class TableModel(Base):
 
     @classmethod
     def exist_filter(cls) -> ColumnElement[bool]:
+        """返回排除已生效归档记录的查询条件"""
         return sa.or_(cls.deleted_at.is_(None), cls.deleted_at > sa.func.now())
 
     def is_archived(self) -> bool:
         return self.deleted_at is not None and self.deleted_at <= datetime.datetime.now(datetime.UTC)
 
     def delete(self) -> None:
+        """将记录标记为立即归档，不自行提交事务"""
         self.deleted_at = datetime.datetime.now(datetime.UTC)
