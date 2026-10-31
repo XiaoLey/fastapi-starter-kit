@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import Field, SecretStr, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import ApiError, UserAlreadyExistsError
+from app.exceptions import ApiError, SafeValueError, UserAlreadyExistsError
 from app.http.deps import database_deps, firewall_deps, request_deps
 from app.schemas.base import BaseSc
 from app.schemas.common import BoolSc
@@ -58,9 +58,9 @@ class RegistrationSc(BaseSc):
     def validate_relationships(self) -> Self:
         kinds = [item.kind for item in self.identities]
         if len(kinds) != len(set(kinds)):
-            raise ValueError('Each local identity kind may occur only once')
+            raise SafeValueError('Each local identity kind may occur only once')
         if 'username' in kinds and self.password is None:
-            raise ValueError('Username registration requires a password')
+            raise SafeValueError('Username registration requires a password')
         return self
 
 

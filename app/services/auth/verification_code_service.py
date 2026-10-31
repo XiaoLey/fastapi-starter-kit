@@ -17,6 +17,7 @@ from app.exceptions import (
     SmsSendError,
     TooManyRequestsError,
 )
+from app.providers.logging_provider import log_failure
 from app.providers.rate_limiter_provider import Limiter
 from app.support.string_helper import numeric_random
 from config.auth import CodeSettings
@@ -128,7 +129,8 @@ async def send_code(
                 cleanup.cancel()
                 await asyncio.gather(cleanup, return_exceptions=True)
         raise
-    except (SmsSendError, EmailSendError, TimeoutError):
+    except (SmsSendError, EmailSendError, TimeoutError) as exc:
+        log_failure(exc)
         await release_owned()
         raise ApiError(503, 'CODE_SEND_ERROR', '验证码发送未能确认成功') from None
     except Exception:

@@ -3,6 +3,10 @@
 from fastapi import HTTPException
 
 
+class SafeValueError(ValueError):
+    """可公开的校验说明，只允许固定文案或已脱敏的错误详情"""
+
+
 class ApiError(HTTPException):
     """具有稳定错误码的业务失败，不携带底层异常输入"""
 

@@ -9,6 +9,7 @@ import redis.asyncio as redis
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.exceptions import SafeValueError
 from app.providers import database_provider, httpx_provider, logging_provider, rate_limiter_provider
 from app.providers.rate_limiter_provider import Limiter
 from app.services.auth.modules import AuthModule
@@ -88,8 +89,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 await stack.enter_async_context(module.lifespan(app))
         yield
     except BaseException as exc:
+        # 框架会将生命周期异常序列化到日志，未知输入必须在此截断
         primary = exc
-        raise
+        if isinstance(exc, asyncio.CancelledError):
+            raise asyncio.CancelledError from None
+        # 安全说明不代表原异常链也可公开
+        if isinstance(exc, SafeValueError):
+            raise SafeValueError(str(exc)) from None
+        if not isinstance(exc, Exception):
+            raise
+        logging_provider.log_failure(exc)
+        raise RuntimeError('Application lifecycle failed') from None
     finally:
         try:
             await _close_stack(stack)

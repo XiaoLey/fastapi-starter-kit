@@ -7,6 +7,7 @@ from typing import override
 
 from loguru import logger
 
+from app.exceptions import SafeValueError
 from config.settings import PROJECT_ROOT, Settings
 
 
@@ -66,12 +67,22 @@ def initialize(settings: Settings) -> None:
             backtrace=False,
         )
 
+    # 请求 URL 可能携带秘密，不启用第三方客户端的低级请求日志
+    for name in ('httpx', 'httpcore'):
+        logging.getLogger(name).setLevel(logging.WARNING)
     logging.basicConfig(handlers=[InterceptHandler()], level=settings.LOG_LEVEL)
     _configuration = configuration
 
 
 def log_failure(exc: BaseException) -> None:
-    """记录异常类型及调用栈位置，不输出异常文本、参数或源码局部值"""
-    frames = traceback.extract_tb(exc.__traceback__)
-    location = ' -> '.join(f'{Path(frame.filename).name}:{frame.lineno}:{frame.name}' for frame in frames)
-    logger.error('{} [{}]', type(exc).__name__, location)
+    """记录异常类型、位置和显式安全说明，不输出原始异常输入或局部值"""
+    # 项目代码可直接定位，外部代码不暴露本机目录
+    locations: list[str] = []
+    for frame in traceback.extract_tb(exc.__traceback__):
+        path = Path(frame.filename)
+        path = path.relative_to(PROJECT_ROOT) if path.is_relative_to(PROJECT_ROOT) else Path(path.name)
+        locations.append(f'{path.as_posix()}:{frame.lineno}:{frame.name}')
+
+    # 只有明确声明安全的校验说明可以进入日志
+    reason = f': {exc}' if isinstance(exc, SafeValueError) else ''
+    logger.error('{}{} [{}]', type(exc).__name__, reason, ' -> '.join(locations))

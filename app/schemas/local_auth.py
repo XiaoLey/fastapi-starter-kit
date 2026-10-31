@@ -5,13 +5,15 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, EmailStr, StringConstraints
 
+from app.exceptions import SafeValueError
+
 LocalKind = Literal['username', 'phone', 'email']
 ContactKind = Literal['phone', 'email']
 
 
 def _reject_phone_username(value: str) -> str:
     if re.fullmatch(r'1[3-9][0-9]{9}', value):
-        raise ValueError('Username must not be a phone number')
+        raise SafeValueError('Username must not be a phone number')
     return value
 
 

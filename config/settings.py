@@ -16,6 +16,9 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
+from app.exceptions import SafeValueError
+from app.schemas.common import ValidationDetailSc
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _PLACEHOLDERS = {'fastapi123456', 'changeme', 'change-me', 'replace-me', 'postgres', 'password'}
 _PROXY_ADAPTER = TypeAdapter(list[IPvAnyAddress | IPvAnyNetwork])
@@ -77,7 +80,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_api_prefix(cls, value: str) -> str:
         if not value.startswith('/') or value.endswith('/'):
-            raise ValueError('API prefix must start with / and have no trailing slash')
+            raise SafeValueError('API prefix must start with / and have no trailing slash')
         return value
 
     @field_validator('APP_TRUSTED_PROXY_IPS')
@@ -100,19 +103,21 @@ class Settings(BaseSettings):
             return None
         raw = value.get_secret_value()
         if len(raw.encode('utf-8')) < 32 or raw.lower() in _PLACEHOLDERS or raw.lower().startswith('replace-'):
-            raise ValueError('A non-placeholder secret of at least 32 bytes is required')
+            raise SafeValueError('A non-placeholder secret of at least 32 bytes is required')
         return value
 
     @model_validator(mode='after')
     def validate_boundaries(self) -> Self:
         # 浏览器凭据与宽泛来源不能同时启用
         if self.APP_CORS_ALLOW_CREDENTIALS and '*' in self.APP_CORS_ORIGINS:
-            raise ValueError('Credentialed CORS requires explicit origins')
+            raise SafeValueError('Credentialed CORS requires explicit origins')
 
         # 生产环境不能继承演示配置
         if self.APP_ENV == 'production':
-            if self.APP_DEBUG or self.REDIS_KEY_PREFIX == 'fastapi':
-                raise ValueError('Production requires DEBUG=false and an application-specific Redis prefix')
+            if self.APP_DEBUG:
+                raise SafeValueError('Production requires APP_DEBUG=false')
+            if self.REDIS_KEY_PREFIX == 'fastapi':
+                raise SafeValueError('Production requires an application-specific REDIS_KEY_PREFIX')
             for name in ('POSTGRES_PASSWORD', 'REDIS_PASSWORD'):
                 secret = self.POSTGRES_PASSWORD if name == 'POSTGRES_PASSWORD' else self.REDIS_PASSWORD
                 raw = secret.get_secret_value()
@@ -122,7 +127,7 @@ class Settings(BaseSettings):
                     or raw.lower() in _PLACEHOLDERS
                     or raw.lower().startswith('replace-')
                 ):
-                    raise ValueError('Production requires explicit non-demo dependency credentials')
+                    raise SafeValueError(f'Production requires explicit non-demo {name}')
         return self
 
     @property
@@ -138,9 +143,12 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
-    """读取配置，错误仅报告字段位置与类型，不输出秘密输入"""
+    """读取配置，错误保留安全约束说明，不输出秘密输入"""
     try:
         return Settings.model_validate({})
     except ValidationError as exc:
-        errors = [(error['loc'], error['type']) for error in exc.errors(include_input=False, include_context=False)]
-        raise RuntimeError(f'Invalid settings: {errors}') from None
+        errors = [
+            ValidationDetailSc.from_error(error).model_dump(exclude_none=True)
+            for error in exc.errors(include_input=False)
+        ]
+        raise SafeValueError(f'Invalid settings: {errors}') from None

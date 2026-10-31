@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +17,7 @@ import httpx
 import pytest
 import redis.asyncio as redis
 from fastapi import FastAPI
+from loguru import logger
 from pydantic import SecretStr
 from sqlalchemy import URL, pool
 from sqlalchemy.engine import make_url
@@ -24,10 +25,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.exceptions import EmailSendError, SmsSendError
 from app.providers.lifespan_provider import Resources
+from app.providers.logging_provider import initialize
 from app.services.auth.local_auth_service import LocalResources
 from app.services.auth.modules import AuthFactory
 from bootstrap.application import create_app
 from config.settings import PROJECT_ROOT, Settings
+
+SENSITIVE_TEST_VALUE = 'private-test-value-9f6ba532'
 
 
 class SmsRecorder:
@@ -42,7 +46,7 @@ class SmsRecorder:
         self, *, cellphone: str, code: str, purpose: Literal['register', 'login'], expires_in: int
     ) -> None:
         if self.fail:
-            raise SmsSendError('Test sender rejected delivery')
+            raise SmsSendError(f'{SENSITIVE_TEST_VALUE}: {cellphone} {code}')
         self.sent.append((cellphone, code, purpose))
 
     async def aclose(self) -> None:
@@ -61,7 +65,7 @@ class EmailRecorder:
         self, *, email: str, code: str, purpose: Literal['register', 'login'], expires_in: int
     ) -> None:
         if self.fail:
-            raise EmailSendError('Test sender rejected delivery')
+            raise EmailSendError(f'{SENSITIVE_TEST_VALUE}: {email} {code}')
         self.sent.append((email, code, purpose))
 
     async def aclose(self) -> None:
@@ -70,6 +74,17 @@ class EmailRecorder:
 
 def make_settings(**overrides: object) -> Settings:
     return Settings.model_validate({'_env_file': None, 'APP_ENV': 'test', 'REDIS_KEY_PREFIX': 'test-unit', **overrides})
+
+
+@pytest.fixture
+def log_messages() -> Iterator[list[str]]:
+    initialize(make_settings())
+    messages: list[str] = []
+    sink = logger.add(messages.append, format='{message}', diagnose=False, backtrace=False)
+    try:
+        yield messages
+    finally:
+        logger.remove(sink)
 
 
 def settings_environment(settings: Settings) -> dict[str, str]:

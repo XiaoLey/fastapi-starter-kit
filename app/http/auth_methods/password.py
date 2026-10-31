@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import Field, SecretStr, TypeAdapter, ValidationError, ValidationInfo, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import ApiError, AuthenticationError
+from app.exceptions import ApiError, AuthenticationError, SafeValueError
 from app.http.deps import database_deps, firewall_deps
 from app.http.deps.runtime_deps import get_jwt_settings
 from app.models.password_credential import PasswordCredentialModel
 from app.schemas.base import BaseSc
+from app.schemas.common import ValidationDetailSc
 from app.schemas.local_auth import Email, LocalKind, Phone, Username, identity_namespace
 from app.schemas.token import TokenSc
 from app.services.auth import identity_service, local_auth_service
@@ -32,7 +33,7 @@ class PasswordLoginSc(BaseSc):
     def normalize_identifier(cls, value: str, info: ValidationInfo) -> str:
         kind = info.data.get('kind')
         if kind not in _IDENTIFIERS:
-            raise ValueError('A valid identity kind is required')
+            raise SafeValueError('A valid identity kind is required')
         return _IDENTIFIERS[kind].validate_python(value)
 
 
@@ -43,8 +44,12 @@ def build_module(settings: Settings) -> AuthModule:
             settings.AUTH_PASSWORD_IDENTIFIERS
         )
         options = local_auth_service.LocalOptions(password_identifiers=identifiers)
-    except ValidationError:
-        raise ValueError('Invalid built-in password identifiers') from None
+    except ValidationError as exc:
+        errors = [
+            ValidationDetailSc.from_error(error).model_dump(exclude_none=True)
+            for error in exc.errors(include_input=False)
+        ]
+        raise SafeValueError(f'Invalid built-in password identifiers: {errors}') from None
 
     router = APIRouter(prefix='/auth/password', tags=['密码认证'])
 
@@ -73,8 +78,5 @@ def build_module(settings: Settings) -> AuthModule:
         return create_token_response_from_user(user, get_jwt_settings(request))
 
     return local_auth_service.LocalAuthModule(
-        router=router,
-        options=options,
-        uses_local_tokens=True,
-        lifespan=local_auth_service.lifespan,
+        router=router, options=options, uses_local_tokens=True, lifespan=local_auth_service.lifespan
     )

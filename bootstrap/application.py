@@ -3,8 +3,10 @@ from collections.abc import Callable, Mapping
 from fastapi import FastAPI
 from pydantic import ValidationError
 
+from app.exceptions import SafeValueError
 from app.providers import exception_provider, middleware_provider, route_provider
 from app.providers.lifespan_provider import lifespan
+from app.schemas.common import ValidationDetailSc
 from app.services.auth.modules import AuthFactory, resolve_modules
 from app.services.email.email_sender import EmailSender
 from app.services.sms.sms_sender import SmsSender
@@ -40,8 +42,11 @@ def create_app(
         try:
             jwt_settings = JwtSettings.model_validate(settings.model_dump())
         except ValidationError as exc:
-            errors = [(error['loc'], error['type']) for error in exc.errors(include_input=False, include_context=False)]
-            raise ValueError(f'Invalid local token settings: {errors}') from None
+            errors = [
+                ValidationDetailSc.from_error(error).model_dump(exclude_none=True)
+                for error in exc.errors(include_input=False)
+            ]
+            raise SafeValueError(f'Invalid local token settings: {errors}') from None
 
     app = FastAPI(
         title=settings.APP_NAME,
@@ -59,7 +64,7 @@ def create_app(
     app.state.email_sender_factory = email_sender_factory
     app.state.resources = None
 
-    # 公共边界先于路由组装，CORS置于可控错误输出之外
+    # 公共边界先于路由组装，CORS 置于可控错误输出之外
     exception_provider.register(app)
     middleware_provider.register(app, settings)
     route_provider.boot(app, settings, modules)

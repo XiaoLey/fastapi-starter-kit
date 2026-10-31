@@ -9,7 +9,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.requests import HTTPConnection
 
+from app.exceptions import SafeValueError
 from app.http.deps.runtime_deps import get_resources
+from app.providers.logging_provider import log_failure
+from app.schemas.common import ValidationDetailSc
 from app.schemas.local_auth import ContactKind, LocalKind, identity_namespace
 from app.services.auth import verification_code_service
 from app.services.auth.modules import AuthModule
@@ -29,7 +32,7 @@ class LocalOptions(BaseModel):
     @classmethod
     def unique_password_identifiers(cls, value: list[LocalKind]) -> list[LocalKind]:
         if len(value) != len(set(value)):
-            raise ValueError('Password identifiers must be unique')
+            raise SafeValueError('Password identifiers must be unique')
         return value
 
     @property
@@ -91,10 +94,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     if contacts:
         try:
             codes = CodeSettings.model_validate(settings.model_dump())
-        except ValidationError:
-            raise ValueError('Verification codes require AUTH_CODE_SECRET_KEY') from None
+        except ValidationError as exc:
+            errors = [
+                ValidationDetailSc.from_error(error).model_dump(exclude_none=True)
+                for error in exc.errors(include_input=False)
+            ]
+            raise SafeValueError(f'Invalid verification code settings: {errors}') from None
         if codes.AUTH_CODE_SECRET_KEY == settings.JWT_SECRET_KEY:
-            raise ValueError('Verification code and JWT secrets must differ')
+            raise SafeValueError('Verification code and JWT secrets must differ')
 
     async with AsyncExitStack() as stack:
         sms: SmsSender | None = None
@@ -103,21 +110,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         if 'phone' in contacts:
             sms_factory = cast(Callable[[], SmsSender] | None, app.state.sms_sender_factory)
             if sms_factory is None:
-                raise RuntimeError('Phone registration/login requires sms_sender_factory')
+                raise SafeValueError('Phone registration/login requires sms_sender_factory')
             try:
                 sms = sms_factory()
-            except Exception:
-                raise RuntimeError('SMS sender initialization failed') from None
+            except Exception as exc:
+                log_failure(exc)
+                raise SafeValueError('SMS sender initialization failed') from None
             stack.push_async_callback(sms.aclose)
 
         if 'email' in contacts:
             email_factory = cast(Callable[[], EmailSender] | None, app.state.email_sender_factory)
             if email_factory is None:
-                raise RuntimeError('Email registration/login requires email_sender_factory')
+                raise SafeValueError('Email registration/login requires email_sender_factory')
             try:
                 email = email_factory()
-            except Exception:
-                raise RuntimeError('Email sender initialization failed') from None
+            except Exception as exc:
+                log_failure(exc)
+                raise SafeValueError('Email sender initialization failed') from None
             stack.push_async_callback(email.aclose)
 
         # 资源只属于当前应用的当前启动周期

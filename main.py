@@ -18,6 +18,7 @@ def main() -> None:
         proxy_headers=bool(settings.APP_TRUSTED_PROXY_IPS),
         forwarded_allow_ips=settings.APP_TRUSTED_PROXY_IPS,
         log_config=None,
+        access_log=False,
         log_level={'SUCCESS': 'info'}.get(settings.LOG_LEVEL, settings.LOG_LEVEL.lower()),
         timeout_keep_alive=120,
     )

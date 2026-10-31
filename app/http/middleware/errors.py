@@ -73,6 +73,7 @@ class ExceptionBoundary:
             elif isinstance(exc, WebSocketRequestValidationError):
                 error = ApiError(422, 'VALIDATION_ERROR', '输入校验失败')
             elif is_dependency_failure(exc):
+                log_failure(exc)
                 error = DependencyUnavailableError()
             else:
                 log_failure(exc)

@@ -38,7 +38,7 @@ def register(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation(connection: HTTPConnection, exc: RequestValidationError) -> Response:
-        details = [ValidationDetailSc.model_validate(error, extra='ignore') for error in exc.errors()]
+        details = [ValidationDetailSc.from_error(error) for error in exc.errors()]
         return error_response(ApiError(422, 'VALIDATION_ERROR', '输入校验失败'), detail=details)
 
     @app.exception_handler(WebSocketRequestValidationError)

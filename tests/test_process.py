@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from config.settings import PROJECT_ROOT
-from tests.conftest import make_settings, settings_environment
+from tests.conftest import SENSITIVE_TEST_VALUE, make_settings, settings_environment
 
 pytestmark = [
     pytest.mark.integration,
@@ -70,6 +70,7 @@ main.main()
             # 外部宽泛环境变量不能绕过应用入口的显式代理边界
             response = httpx.get(
                 f'{base}/_probe/client',
+                params={'secret': SENSITIVE_TEST_VALUE},
                 headers={'X-Real-IP': '127.0.0.1', 'X-Forwarded-For': '198.51.100.42', 'X-Forwarded-Proto': 'https'},
                 trust_env=False,
             )
@@ -88,7 +89,9 @@ main.main()
                     pytest.fail('Uvicorn did not terminate gracefully')
     # 正常信号退出仍必须完成应用收尾
     assert process.returncode in (0, -signal.SIGTERM)
-    assert 'Application shutdown complete' in log_path.read_text(encoding='utf-8')
+    output = log_path.read_text(encoding='utf-8')
+    assert 'Application shutdown complete' in output
+    assert SENSITIVE_TEST_VALUE not in output
 
 
 def test_scheduler_sigterm_waits_for_owned_job(tmp_path: Path) -> None:

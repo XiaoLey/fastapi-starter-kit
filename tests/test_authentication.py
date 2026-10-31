@@ -27,7 +27,7 @@ from app.services.auth.identity_service import PreparedIdentity, create_account,
 from app.services.auth.modules import AuthModule
 from app.services.auth.token_service import create_token_response_from_user
 from config.settings import Settings
-from tests.conftest import AppFactory
+from tests.conftest import SENSITIVE_TEST_VALUE, AppFactory
 
 pytestmark = pytest.mark.integration
 
@@ -91,7 +91,9 @@ async def test_password_lifecycle_and_unavailable_account(app_factory: AppFactor
 
 
 @pytest.mark.parametrize('kind', ['phone', 'email'])
-async def test_otp_only_delivery_ownership_and_reuse(app_factory: AppFactory, kind: Literal['phone', 'email']) -> None:
+async def test_otp_only_delivery_ownership_and_reuse(
+    app_factory: AppFactory, kind: Literal['phone', 'email'], log_messages: list[str]
+) -> None:
     # 包装资源上下文并改注册名，不应改变内置方式贡献的能力
     factories = None
     module_id = f'{kind}_otp'
@@ -124,7 +126,10 @@ async def test_otp_only_delivery_ownership_and_reuse(app_factory: AppFactory, ki
 
     # 外部拒绝不伪报成功，注册码不能当作登录证明
     sender.fail = True
-    assert (await client.post(f'{base}/codes/register', json=body)).status_code == 503
+    rejected = await client.post(f'{base}/codes/register', json=body)
+    assert rejected.status_code == 503
+    assert rejected.json() == {'code': 'CODE_SEND_ERROR', 'message': '验证码发送未能确认成功'}
+    assert SENSITIVE_TEST_VALUE not in rejected.text + ''.join(log_messages)
     assert not sender.sent
     sender.fail = False
     assert (await client.post(f'{base}/codes/register', json=body)).status_code == 200
