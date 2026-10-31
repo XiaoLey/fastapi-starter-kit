@@ -5,7 +5,6 @@ from pydantic import Field, SecretStr, TypeAdapter, ValidationError, ValidationI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import ApiError, AuthenticationError
-from app.http.auth_methods.registration import build_router as registration_router
 from app.http.deps import database_deps, firewall_deps
 from app.http.deps.runtime_deps import get_jwt_settings
 from app.models.password_credential import PasswordCredentialModel
@@ -77,6 +76,5 @@ def build_module(settings: Settings) -> AuthModule:
         router=router,
         options=options,
         uses_local_tokens=True,
-        shared_router=registration_router,
         lifespan=local_auth_service.lifespan,
     )

@@ -26,25 +26,6 @@ def import_all_models(
     return [importlib.import_module(name) for name in names if f'{name.rsplit(".", 1)[-1]}.py' not in exclude_filenames]
 
 
-def get_attributes_from_all_modules(
-    module_path: str, attribute_name: str, *, exclude_filenames: Sequence[str] = ()
-) -> dict[str, object]:
-    """递归收集指定属性，结果以模块全名为键，缺失属性的模块省略"""
-    attributes: dict[str, object] = {}
-    for module in import_all_models(module_path, recursive=True, exclude_filenames=exclude_filenames):
-        if attribute_name in vars(module):
-            attributes[module.__name__] = vars(module)[attribute_name]
-    return attributes
-
-
-def execute_function_in_all_modules(module_path: str, function_name: str, *args: object, **kwargs: object) -> None:
-    """执行各模块存在的同名可调用属性，失败向调用方传播"""
-    for function in get_attributes_from_all_modules(module_path, function_name).values():
-        if not callable(function):
-            raise TypeError(f'{function_name} must be callable')
-        function(*args, **kwargs)
-
-
 def get_classes_inheriting_from_base[T](
     module_path: str, base_class: type[T], exclude_filenames: Sequence[str] = (), include_base_class: bool = False
 ) -> dict[str, dict[str, type[T]]]:

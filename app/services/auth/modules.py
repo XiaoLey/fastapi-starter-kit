@@ -1,6 +1,6 @@
 """认证模块的显式装配契约，不发现或导入配置指定的代码"""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 
@@ -11,12 +11,10 @@ from config.settings import Settings
 
 @dataclass(frozen=True)
 class AuthModule:
-    """一个可选认证实现；共享入口与资源每轮仅装配一次"""
+    """一个可选认证实现；共享资源每轮仅装配一次"""
 
     router: APIRouter
     uses_local_tokens: bool = False  #: 接入统一访问凭据、当前用户和吊销能力
-    #: 接收全部已启用模块的共享入口构造器
-    shared_router: Callable[[Settings, Sequence['AuthModule']], APIRouter] | None = None
     #: 当前应用启动周期的资源上下文，共享回调只运行一次
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None
 

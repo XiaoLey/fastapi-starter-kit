@@ -1,13 +1,19 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.http.middleware.errors import ExceptionBoundary
-from app.support.modules_helper import get_attributes_from_all_modules
+from config.settings import Settings
 
 
-def register(app: FastAPI) -> None:
+def register(app: FastAPI, settings: Settings) -> None:
     app.add_middleware(ExceptionBoundary)
-    hooks = get_attributes_from_all_modules('app.http.middleware', 'register')
-    for hook in hooks.values():
-        if not callable(hook):
-            raise TypeError('Middleware register must be callable')
-        hook(app)
+
+    # 最后添加的用户中间件在外层，为可控错误响应附加 CORS 头
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.APP_CORS_ORIGINS,
+        allow_credentials=settings.APP_CORS_ALLOW_CREDENTIALS,
+        allow_methods=['*'],
+        allow_headers=['*'],
+        expose_headers=['WWW-Authenticate', 'Retry-After', 'Allow'],
+    )

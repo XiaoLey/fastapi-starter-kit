@@ -3,7 +3,7 @@ from collections.abc import Callable, Mapping
 from fastapi import FastAPI
 from pydantic import ValidationError
 
-from app.providers import app_provider, exception_provider, middleware_provider, route_provider
+from app.providers import exception_provider, middleware_provider, route_provider
 from app.providers.lifespan_provider import lifespan
 from app.services.auth.modules import AuthFactory, resolve_modules
 from app.services.email.email_sender import EmailSender
@@ -61,7 +61,6 @@ def create_app(
 
     # 公共边界先于路由组装，CORS置于可控错误输出之外
     exception_provider.register(app)
-    middleware_provider.register(app)
-    app_provider.register(app, settings)
+    middleware_provider.register(app, settings)
     route_provider.boot(app, settings, modules)
     return app

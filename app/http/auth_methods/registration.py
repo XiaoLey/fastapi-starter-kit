@@ -18,7 +18,6 @@ from app.schemas.user import UserProfileSc, UserSc
 from app.services.auth import identity_service, local_auth_service
 from app.services.auth.identity_service import PreparedIdentity
 from app.services.auth.modules import AuthModule
-from config.settings import Settings
 
 
 class UsernameRegistrationSc(BaseSc):
@@ -65,7 +64,7 @@ class RegistrationSc(BaseSc):
         return self
 
 
-def build_router(settings: Settings, modules: Sequence[AuthModule]) -> APIRouter:
+def build_router(modules: Sequence[AuthModule]) -> APIRouter:
     """只装配当前内置组合支持的注册及所有权证明入口"""
     options = local_auth_service.local_options(modules)
     router = APIRouter(prefix='/auth', tags=['本地账号注册'])

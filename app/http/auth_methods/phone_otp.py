@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.http.auth_methods.registration import PhoneCodeRequestSc
-from app.http.auth_methods.registration import build_router as registration_router
 from app.http.deps import database_deps, firewall_deps, request_deps
 from app.http.deps.runtime_deps import get_jwt_settings
 from app.schemas.common import BoolSc
@@ -55,6 +54,5 @@ def build_module(settings: Settings) -> AuthModule:
         router=router,
         options=local_auth_service.LocalOptions(otp_identifiers=frozenset({'phone'})),
         uses_local_tokens=True,
-        shared_router=registration_router,
         lifespan=local_auth_service.lifespan,
     )

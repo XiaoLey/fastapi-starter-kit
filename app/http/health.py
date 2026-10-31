@@ -9,7 +9,6 @@ from app.http.deps.runtime_deps import get_resources
 from app.schemas.common import LiveSc, ReadySc
 
 router = APIRouter(tags=['健康检查'])
-health_router = True
 
 
 @router.get('/ping')
