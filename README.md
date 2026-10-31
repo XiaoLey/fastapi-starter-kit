@@ -55,7 +55,13 @@ curl http://127.0.0.1:8000/api/health/ready
 docker compose --env-file .env -f docker/docker-compose-middleware.yaml down
 ```
 
-## 2. 需要登录时再选装
+## 2. 普通业务开发
+
+普通业务使用 FastAPI、Pydantic 和 SQLAlchemy，示例见[开发指南](docs/development.md)。业务路由由 `app/http/api/__init__.py` 显式 `include_router`，HTTP 和 WebSocket 都使用标准 `APIRouter`，不会按目录自动发现。业务路由默认应用来源封禁和 QPS 限制，但**不会自动要求登录**；需要保护时在路由上显式声明认证依赖，并启用对应认证能力。
+
+数据库会话由 `get_db` 提供，业务代码负责显式提交；离开依赖时未提交事务会回滚。模型、事务、迁移、错误边界、调度及测试说明见[运行与开发说明](docs/operations.md)。
+
+## 3. 可选内置登录
 
 ### 最短路径：用户名 + 密码
 
@@ -111,11 +117,11 @@ curl -X DELETE http://127.0.0.1:8000/api/auth/token -H 'Authorization: Bearer <a
 
 三种内置实现不是全集，未选择的登录路由和 OpenAPI operation 不会出现。短信/邮件发送器必须接入真实供应商，模板不假装发送成功。
 
-详见 [认证接入教程](docs/auth.md)：选择标识、发送器接入、初始多身份注册及限制。
+详见[认证接入教程](docs/auth.md)：选择标识、发送器接入、初始多身份注册及限制。
 
-## 3. 接入自己的认证方式
+## 4. 高级：接入自己的认证方式
 
-按 [自定义模块示例](docs/auth.md#自定义模块) 实现 `build_module` 后，在 `api_app.py` 注册它：
+按[自定义模块示例](docs/auth.md#自定义模块)实现 `build_module` 后，在 `api_app.py` 注册它：
 
 ```python
 from app.http.auth_methods.service_key import build_module
@@ -126,13 +132,9 @@ app = create_app(auth_module_factories={'service_key': build_module})
 
 随后设置 `AUTH_MODULES=["service_key"]`。这份注册清单可以不包含三个内置模块；需要同时保留时，再加入 `builtin_factories()`。不修改核心身份枚举，也不从环境变量动态导入代码。
 
-## 4. 继续开发
+更多认证能力组合、资源生命周期和安全边界见[认证接入教程](docs/auth.md)。
 
-- 普通业务路由放在 `app/http/api`；认证模块显式装配，不放进业务自动发现目录
-- 模型和 schema 分别在 `app/models`、`app/schemas`；应用工厂为 `bootstrap/application.py:create_app`
-- [运行与开发说明](docs/operations.md)：生产启动、迁移、调度、代理、错误边界、WS 和测试
-
-提交前运行：
+## 提交前检查
 
 ```bash
 uv lock --check
@@ -142,6 +144,6 @@ uv run --locked basedpyright
 uv run --locked pytest -q -m "not integration"
 ```
 
-真实 PostgreSQL/Redis 测试需显式配置隔离服务，参见运行说明；缺服务的 skip 不代表通过。Ruff/basedpyright 以项目配置为准，只处理 warning/error。
+真实 PostgreSQL/Redis 测试需使用独立开发/测试服务并显式配置，参见[运行与开发说明](docs/operations.md)；缺服务的 skip 不代表通过。Ruff/basedpyright 以项目配置为准，只处理 warning/error。
 
 许可证：[LICENSE](LICENSE)。

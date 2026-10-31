@@ -1,6 +1,6 @@
 # 运行与开发说明
 
-首次启动见 [README](../README.md)，认证选择和自定义方式见 [认证接入教程](auth.md)。本文保留二次开发和部署需要的边界，不是额外的首次启动步骤。
+首次启动见 [README](../README.md)，普通业务示例见[开发指南](development.md)，认证选择和自定义方式见 [认证接入教程](auth.md)。本文保留二次开发和部署需要的边界，不是额外的首次启动步骤。
 
 ## 配置与运行资源
 
@@ -30,7 +30,9 @@
 uv run --locked python -X utf8 -m alembic upgrade head
 ```
 
-所有 Alembic 命令均使用 `python -X utf8 -m alembic`，保证 Windows 历史 SQL 正确解码。初始化需要创建项目扩展、ICU collation 相关对象和触发器的权限；应用运行角色可另外收紧权限。
+所有 Alembic 命令均使用 `python -X utf8 -m alembic`，保证 Windows 历史 SQL 正确解码。初始化只创建表、原生 enum 和实际使用的更新时间函数/触发器，不预装业务扩展，迁移角色需要相应权限。目标 PostgreSQL 实例须提供 `users.nickname` 使用的 `zh-x-icu` collation；迁移只引用它，不执行 `CREATE COLLATION`。初始化只用于全新数据库，不能套用到已有业务库。
+
+已经应用的 revision 不会重复执行。派生项目应保留自己的迁移历史，后续变更追加 revision，不复制模板的初始化文件覆盖已有历史。
 
 本模板面向全新数据库，不提供旧 API/旧账号/bcrypt 兼容或旧库重置脚本。users 仅保存主体资料，auth_identities 保存开放身份域的归属，密码凭据是内置密码模块自己的表。
 
@@ -43,18 +45,30 @@ uv run --locked python -X utf8 -m alembic revision --autogenerate -m "describe s
 uv run --locked python -X utf8 -m alembic check
 ```
 
-初始化生成源安排全局 DDL、表、模型附属 DDL 的依赖顺序，并在回退时清理原生 enum。后续 schema 变化仍须检查生成结果并在可销毁数据库演练，不把 downgrade 当作无损生产回退。
+生成的迁移把模型附属 DDL 安排在建表之后、回退删表之前；初始化回退额外清理原生 enum。后续 schema 变化仍须检查生成结果并在可销毁数据库演练，不把 downgrade 当作无损生产回退。
 
 DDDL 插件比较 SQL 源与历史快照，不能检测数据库实际被人工删改的 function/trigger/view。新增或删除 DDL 都要验证实际 catalog 和行为；移除登记不会自动生成 DROP。不要在真实数据库上做 base/head 往返演练。
 
 开发 Compose 端口只绑定 127.0.0.1；使用命名卷，down 不删数据。PostgreSQL 大版本升级另做备份与 dump/restore 或 pg_upgrade，不能直接把旧数据目录挂给 18。不要用删除卷解决未知迁移问题。
 
+### 按需使用 PostgreSQL 扩展
+
+扩展按实际业务需要启用，先确认服务器提供该扩展、部署环境允许安装，以及迁移角色具有所需权限。常见需求例如：
+
+- 模糊搜索或 trigram 索引：`pg_trgm`
+- 忽略重音字符：`unaccent`
+- GiST / GIN 索引中的普通标量字段：`btree_gist` / `btree_gin`
+
+需要时，在 `app/models/base_model.py` 的 `Base.get_init_sql_alembic_ddls()` 中登记扩展 DDL，按上述流程生成并检查迁移，确保安装先于依赖它的索引或其他对象。不要只在数据库中手工安装，也不要在应用每次启动时安装。
+
+PostgreSQL 已内建 `gen_random_uuid()`，普通随机 UUID 不需要 `uuid-ossp`。其他能力及安装要求见 [PostgreSQL 官方扩展目录](https://www.postgresql.org/docs/current/contrib.html)。
+
 ## 代理、限流和错误
 
-应用使用服务器规范化后的 `scope.client`，不自行信任 X-Real-IP / X-Forwarded-For。`main.py` 显式传入 Uvicorn 信任配置；直接启动 Uvicorn 时需自己提供等价边界：
+应用使用服务器规范化后的 `scope.client`，不自行信任 X-Real-IP / X-Forwarded-For。普通 HTTP/WS 业务路由由标准 `APIRouter` 显式组合，继承来源封禁和 APP_QPS；不自动要求登录。健康探针独立，不走业务封禁和配额。中间件显式登记，CORS 保持在错误边界外层。`main.py` 显式传入 Uvicorn 信任配置并关闭原始 access log；直接启动 Uvicorn 时需自己提供等价边界：
 
 ```bash
-uv run --locked uvicorn api_app:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+uv run --locked uvicorn api_app:app --host 127.0.0.1 --port 8000 --no-proxy-headers --no-access-log
 ```
 
 Nginx 单层代理应覆盖转发头为实际来源，只让受信网关访问后端；多层代理先配置可信 real_ip 来源再转发。不要配置 `*`。浏览器来源示例：`APP_CORS_ORIGINS='["http://localhost:5173"]'`。
@@ -67,11 +81,21 @@ Redis 故障时认证、限流和封禁返回 503，不静默降级到进程内�
 | GET `/api/health/live` | 进程存活，200 |
 | GET `/api/health/ready` | DB/Redis 共同 2 秒预算，200 或 503 |
 
-探针独立于业务封禁和配额，部署时限制其访问范围。
+健康路由定义在 `app/http/health.py`；探针独立于业务封禁和配额，部署时限制其访问范围。
 
-业务错误统一 `{code,message,detail?}`；422 detail 只包含字段位置和错误类型，不回显输入。常用状态：401 身份失败、403 权限/封禁、409 身份占用、422 输入/证明错误、429 超限、503 依赖/交付不可用。WWW-Authenticate、Retry-After 保持标准头值。
+业务错误统一 `{code,message,detail?}`。422 detail 保留字段位置和错误类型；作者在 Pydantic 校验器中显式抛出的 `SafeValueError` 可额外提供固定安全说明，普通校验/第三方错误文本、input 和 ctx 不回显。未知异常及内部模型/响应错误仍返回固定 500。常用状态：401 身份失败、403 权限/封禁、409 身份占用、422 输入/证明错误、429 超限、503 依赖/交付不可用。WWW-Authenticate、Retry-After 保持标准头值。
 
-ready 使用独立状态模型；CORS preflight 和已开始发送的响应不强行改写。APP_DEBUG 不向客户端开启 traceback。日志不转储密码、token、验证码、完整联系方式、SQL 参数、供应商异常输入或局部变量；多 worker 日志建议 stdout 交给进程外收集。
+例如，生产配置误开 DEBUG 时会明确提示 `Production requires APP_DEBUG=false`，不会打印配置值。用户名注册缺少密码时返回：
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "输入校验失败",
+  "detail": [{"loc": ["body"], "type": "value_error", "message": "Username registration requires a password"}]
+}
+```
+
+ready 使用独立状态模型；CORS preflight 和已开始发送的响应不强行改写。`APP_DEBUG` 仅控制 docs/OpenAPI 与 reload，不向客户端开启 traceback。未知异常日志只记录异常类型和代码位置，不记录异常文本、输入或局部值；主入口关闭 Uvicorn 原始 access log，并抑制 HTTPX/httpcore INFO/DEBUG 的 URL 日志。适配器自行记录的信息也须遵守不含秘密的边界。排查时可使用 `.vscode/launch.json` 中的 **Debug FastAPI** 或 **Debug Scheduler** 配置，在 VS Code Run and Debug 的 Breakpoints 面板启用 Raised Exceptions，按调用栈定位失败位置。
 
 ## WebSocket 扩展
 
@@ -89,7 +113,18 @@ ready 使用独立状态模型；CORS preflight 和已开始发送的响应不�
 uv run --locked python scheduler.py
 ```
 
-在 `bootstrap/scheduler.py:register_asyncio_jobs` 注册协作异步作业，使用 runner.wrap 跟踪在途任务。Web worker 不启动 scheduler；默认独立进程单实例，不承诺多副本 exactly-once。
+在 `bootstrap/scheduler.py:register_asyncio_jobs` 显式登记任务；模板不预置业务任务。新增协作异步作业时使用 `runner.wrap`，使停止流程能够等待在途任务：
+
+```python
+async def refresh_cache() -> None:
+    ...  # 替换为具体业务操作
+
+
+def register_asyncio_jobs(scheduler: AsyncIOScheduler, runner: JobRunner) -> None:
+    scheduler.add_job(runner.wrap(refresh_cache), 'interval', minutes=5, id='refresh-cache')
+```
+
+调度器是独立进程，Web worker 不启动 scheduler；默认独立进程单实例，不承诺多副本 exactly-once。它不提供 Web 应用的 `Resources`。需要数据库或 Redis 的任务应自行创建并关闭所需资源，按任务边界使用短会话；不要假设可复用 Web worker 的会话或客户端。
 
 Linux SIGINT/SIGTERM 停止新任务后给予在途任务 30 秒完成窗口，随后取消并等待收尾；Windows 支持 Ctrl+C。阻塞同步线程不能被 asyncio 强杀，不能把 30 秒理解为任意业务的硬退出保证。
 
@@ -118,11 +153,19 @@ uv run --locked basedpyright
 uv run --locked python -X utf8 -m pytest -q -m "not integration"
 ```
 
-真实集成测试使用独立服务，并显式提供 URL。下面是 Bash 环境设置，用户/密码自行替换：
+真实集成测试只使用独立开发/测试服务，不得指向生产。可用已有的开发 Compose 首次启动 PostgreSQL/Redis，并创建一次 control 库 `fastapi_test_control`；这仅适用于本地隔离环境：
 
 ```bash
-export TEST_DATABASE_URL='postgresql+asyncpg://test_user:test_password@127.0.0.1:5432/fastapi_test_control'
-export TEST_REDIS_URL='redis://:test_password@127.0.0.1:6379/15'
+docker compose --env-file .env -f docker/docker-compose-middleware.yaml up -d --wait
+docker compose --env-file .env -f docker/docker-compose-middleware.yaml exec -T db \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE DATABASE fastapi_test_control;"'
+```
+
+若 control 库已存在，跳过创建命令。测试连接的 PostgreSQL 角色必须可连接该库并有 `CREATEDB` 权限；测试不会自动创建或清空 control 库。下面是 Bash 环境设置，用户名和密码使用该隔离服务的凭据，密码中的 URL 保留字符需 percent-encode：
+
+```bash
+export TEST_DATABASE_URL='postgresql+asyncpg://<CREATEDB_USER>:<URL_ENCODED_PASSWORD>@127.0.0.1:5432/fastapi_test_control'
+export TEST_REDIS_URL='redis://:<URL_ENCODED_PASSWORD>@127.0.0.1:6379/15'
 uv run --locked python -X utf8 -m pytest -q
 ```
 

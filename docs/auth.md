@@ -36,7 +36,7 @@ AUTH_PASSWORD_IDENTIFIERS=["username"]
 | DELETE `/auth/token` | 吊销当前有效 token，不承诺重复退出幂等 |
 | GET `/users/me` | 当前用户资料白名单，不返回认证身份或秘密 |
 
-只有选中的能力才有对应路由：例如只开 phone_otp 时没有密码登录；只开 phone 密码时有 register 发码，但没有 phone OTP 登录或 login 发码。默认无 auth 时，上述接口全部不存在；使用共用本地 token 的自定义模块也可接入最后三项。
+只有选中的能力才有对应路由：例如只开 phone_otp 时没有密码登录；只开 phone 密码时有 register 发码，但没有 phone OTP 登录或 login 发码。默认无 auth 时，上述接口全部不存在；使用共用本地 token 的自定义模块也可接入最后三项。普通业务端点不会因启用认证而自动要求登录；需要保护时显式声明对应鉴权依赖。`get_auth_user` 返回的用户不持有活动数据库会话，更新用户时须在业务 `get_db` 会话内重新读取。
 
 ## 接入短信 / 邮件发送器
 
@@ -113,7 +113,7 @@ curl -X POST http://127.0.0.1:8000/api/auth/phone/token \
 - 同类本地身份一次最多一个；三种密码标识共用用户级的一份 Argon2 密码
 - 手机/邮箱需证明所有权，用户名不带验证码；全部身份在同一个数据库事务中创建
 - 任一身份已占用，整体 409，包括停用/软删除账号；不自动合并、追加身份或覆盖密码
-- **OTP 先建号后，本轮不能再补绑用户名、密码或另一联系方式**；模板没有绑定/解绑、密码重置接口
+- **OTP 首次登录建号后，模板不提供补绑用户名、密码或其他联系方式的接口**；也不提供解绑或密码重置接口
 
 用户名为 3–64 位 ASCII 字母、数字、`_ . -`，trim 且区分大小写，不能是合法手机号形态。手机为大陆 11 位 ASCII 数字，不接受 +86。邮箱规范值全地址大小写不敏感，不做供应商去点/去加号转换。新密码为 12–128 个 Unicode 字符，不 trim。
 
@@ -121,7 +121,7 @@ curl -X POST http://127.0.0.1:8000/api/auth/phone/token \
 
 认证核心不限定请求形状、身份种类或是否使用 JWT。下面用一个**服务调用密钥**演示接入：它只保护一个接口，不创建用户、不使用本地 token，也不需要 JWT 密钥。
 
-创建 `app/http/auth_methods/service_key.py`（该目录不参与业务自动发现）：
+创建 `app/http/auth_methods/service_key.py`，然后通过应用工厂显式注册其 factory：
 
 ```python
 from secrets import compare_digest
@@ -132,7 +132,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.exceptions import ApiError
+from app.exceptions import ApiError, SafeValueError
 from app.services.auth.modules import AuthModule
 from config.settings import PROJECT_ROOT, Settings
 
@@ -148,7 +148,7 @@ def build_module(settings: Settings) -> AuthModule:
     try:
         config = KeySettings.model_validate({})
     except ValidationError:
-        raise ValueError('SERVICE_API_KEY 至少32字符，且必须显式提供') from None
+        raise SafeValueError('SERVICE_API_KEY 至少32字符，且必须显式提供') from None
 
     router = APIRouter()
     header = APIKeyHeader(name='X-Service-Key', auto_error=False)
@@ -162,7 +162,7 @@ def build_module(settings: Settings) -> AuthModule:
     return AuthModule(router=router)
 ```
 
-按 README 第 3 节在 `api_app.py` 注册该 factory，在 `.env` 设置：
+按 README 第 4 节在 `api_app.py` 注册该 factory，在 `.env` 设置：
 
 ```dotenv
 AUTH_MODULES=["service_key"]
@@ -185,8 +185,8 @@ curl http://127.0.0.1:8000/api/service/check -H 'X-Service-Key: <SERVICE_API_KEY
 - `PreparedIdentity` + `resolve_verified_user`：完成真实上游证明验证后，按可信 namespace 与稳定 subject 解析/首次建号；不能相信客户端自报“已验证”
 - `create_account`：初始多身份及模块凭据在同一事务创建；凭据写入回调不能自己 commit。需要组合注册时由自己的请求模型编排，不修改全局三类注册模型
 - `create_token_response_from_user(user, get_jwt_settings(request))`：账号可用且事务成功后签发统一 token
-- `AuthModule.lifespan`：可选异步上下文，使用当前应用资源，负责关闭自己的资源；不为每个新模块增加工厂顶层参数
-- 路由自动继承封禁与 APP_QPS；登录/注册还应分别使用 `verify_login_limit` / `verify_register_limit`
+- `AuthModule.lifespan`：可选异步上下文，使用当前应用资源并负责关闭自己的资源；同一个回调对象在应用生命周期内只运行一次，三个内置模块共用同一回调。不同包装函数按不同回调处理，不会自动合并
+- 挂载在业务 router 下的认证路由和普通业务路由继承封禁与 APP_QPS，但不会自动要求用户登录；登录/注册还应分别使用 `verify_login_limit` / `verify_register_limit`
 
 通用身份归属是 `(namespace, subject)` 唯一；不同 issuer/tenant 使用不同域，同域多个身份可以归属同一用户。不要把认证方式 ID 当作共享手机号的另一个域，也不要因为外部邮箱相同就自动绑定本地用户。自定义秘密凭据使用自己的强类型表/迁移，不塞入 users 或通用 JSON 密码列。
 
