@@ -12,7 +12,6 @@ from alembic_dddl.src.ops import Script, SyncDDLOp  # pyright: ignore[reportMiss
 from sqlalchemy import Enum
 
 from app.models.base_model import Base, TableModel, ViewModel
-from app.support.modules_helper import get_classes_inheriting_from_base
 
 
 def install_ddl_compatibility() -> None:
@@ -35,20 +34,18 @@ def install_ddl_compatibility() -> None:
 
 
 def collect_ddls() -> tuple[list[DDL], set[str]]:
-    # 表和视图分开收集；相同名字但不同定义不能被插件静默覆盖
+    # 附属 DDL 与实际映射使用同一份登记，表和视图都只收集一次
     entities = Base.get_init_sql_alembic_ddls()
     view_names: set[str] = set()
-    seen: set[type[Base]] = set()
-    for base in (ViewModel, TableModel):
-        for classes in get_classes_inheriting_from_base('app.models', base, ('base_model.py',)).values():
-            for model in classes.values():
-                if model in seen:
-                    continue
-                seen.add(model)
-                entities.extend(model.get_ext_alembic_ddls())
-                if issubclass(model, ViewModel):
-                    view_names.add(str(model.__tablename__))
+    for mapper in sorted(Base.registry.mappers, key=lambda item: (item.class_.__module__, item.class_.__qualname__)):
+        model = mapper.class_
+        if not issubclass(model, (TableModel, ViewModel)):
+            continue
+        entities.extend(model.get_ext_alembic_ddls())
+        if issubclass(model, ViewModel):
+            view_names.add(str(model.__tablename__))
 
+    # 同名但不同定义不能被插件静默覆盖
     unique: dict[str, DDL] = {}
     for entity in entities:
         previous = unique.get(entity.name)
@@ -63,13 +60,10 @@ def register_project_ddls(entities: list[DDL]) -> None:
     ddl_registry.ddls[:] = entities
 
 
-def complete_initial_schema(
+def prepare_schema_migration(
     context: MigrationContext, revisions: Iterable[str | None], directives: list[ops.MigrationScript]
 ) -> None:
-    """初始化按依赖顺序创建和清理DDL及原生enum"""
-    if any(revisions):
-        return
-
+    """保证模型附属 DDL 的建删顺序，初始化回退不遗留原生 enum"""
     # 模型附属DDL依赖表；全局扩展和函数先于表创建
     initial_names = {entity.name for entity in Base.get_init_sql_alembic_ddls()}
 
@@ -93,6 +87,8 @@ def complete_initial_schema(
             downgrade.ops[:] = attached + [operation for operation in downgrade.ops if operation not in attached]
 
     # PostgreSQL删表不会自动清除其命名enum，只处理初始化拥有的类型
+    if any(revisions):
+        return
     names: set[str] = set()
     quote = context.dialect.identifier_preparer.quote
     for table in Base.metadata.tables.values():

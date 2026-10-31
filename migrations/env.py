@@ -1,4 +1,6 @@
 import asyncio
+import importlib
+import pkgutil
 from logging.config import fileConfig
 
 from alembic import context
@@ -6,13 +8,16 @@ from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.schema import SchemaItem
 
+from app import models
 from app.models.base_model import Base
-from app.support.modules_helper import import_all_models
 from config.settings import load_settings
-from migrations.support import collect_ddls, complete_initial_schema, install_ddl_compatibility, register_project_ddls
+from migrations.support import collect_ddls, install_ddl_compatibility, prepare_schema_migration, register_project_ddls
 
 config = context.config
-import_all_models('app.models', recursive=True)
+
+# 新模型必须在 schema 比较前进入共享 metadata
+for module_name in sorted(info.name for info in pkgutil.walk_packages(models.__path__, f'{models.__name__}.')):
+    importlib.import_module(module_name)
 install_ddl_compatibility()
 entities, view_names = collect_ddls()
 register_project_ddls(entities)
@@ -37,7 +42,7 @@ def configure(connection: Connection | None = None) -> None:
         dialect_opts={'paramstyle': 'named'},
         compare_server_default=True,
         include_object=include_object,
-        process_revision_directives=complete_initial_schema,
+        process_revision_directives=prepare_schema_migration,
     )
 
 

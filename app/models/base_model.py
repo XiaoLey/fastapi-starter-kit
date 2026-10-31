@@ -22,25 +22,14 @@ class Base(AsyncAttrs, MappedAsDataclass, DeclarativeBase):  # pyright: ignore[r
 
     @classmethod
     def get_init_sql_alembic_ddls(cls) -> list[DDL]:
-        # 初始化扩展与公共更新时间触发器
-        extensions = ('hstore', 'pg_trgm', 'unaccent', 'uuid-ossp', 'btree_gin', 'btree_gist', 'fuzzystrmatch')
-        entities = [
-            DDL(
-                name=f'ext-{name}',
-                sql=f'CREATE EXTENSION IF NOT EXISTS {sql_name};',
-                down_sql=f'DROP EXTENSION IF EXISTS {sql_name};',
-            )
-            for name in extensions
-            for sql_name in [f'"{name}"' if '-' in name else name]
-        ]
-        entities.append(
+        """返回新库所需的公共数据库对象"""
+        return [
             DDL(
                 name='tgr_func-update_updated_at_column',
                 sql=load_sql('tgr_func-update_updated_at_column.sql'),
                 down_sql='DROP FUNCTION IF EXISTS update_updated_at_column;',
             )
-        )
-        return entities
+        ]
 
     @classmethod
     def get_ext_alembic_ddls(cls) -> list[DDL]:
