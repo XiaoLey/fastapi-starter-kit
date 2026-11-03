@@ -36,6 +36,7 @@ async def require_token(
 
 
 async def _user_for_token(connection: HTTPConnection, token: str) -> UserModel:
+    # 凭据签名与吊销状态通过后才查询主体
     resources = get_resources(connection)
     payload = await validate_token(token, resources.redis_client, get_jwt_settings(connection))
 
@@ -59,6 +60,8 @@ async def get_auth_user_dirty(
     get_jwt_settings(connection)
     if credentials is None:
         return None
+
+    # 只将认证失败视为匿名访问，其他业务和依赖错误继续传播
     try:
         return await _user_for_token(connection, credentials.credentials)
     except ApiError as exc:

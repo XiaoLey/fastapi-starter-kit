@@ -39,6 +39,7 @@ class PasswordLoginSc(BaseSc):
 
 def build_module(settings: Settings) -> AuthModule:
     """构造密码认证入口，所选密码标识必须非空、合法且不重复"""
+    # 路由装配前拒绝无效的密码标识组合
     try:
         identifiers = TypeAdapter(Annotated[list[LocalKind], Field(min_length=1)]).validate_python(
             settings.AUTH_PASSWORD_IDENTIFIERS
@@ -75,6 +76,7 @@ def build_module(settings: Settings) -> AuthModule:
         if replacement is not None:
             credential.password_hash = replacement
             await session.commit()
+
         return create_token_response_from_user(user, get_jwt_settings(request))
 
     return local_auth_service.LocalAuthModule(

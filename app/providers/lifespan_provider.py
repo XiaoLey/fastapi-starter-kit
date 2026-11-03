@@ -34,12 +34,15 @@ async def _close_stack(stack: AsyncExitStack) -> None:
     deadline = asyncio.get_running_loop().time() + 10
     cancelled = False
     while not task.done():
+        # 期限耗尽时停止清理任务，避免退出无限等待
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
             raise RuntimeError('Resource cleanup timed out')
+
+        # 外层取消只记录状态，清理任务仍继续执行
         try:
             await asyncio.wait_for(asyncio.shield(task), remaining)
         except asyncio.CancelledError:
@@ -49,6 +52,7 @@ async def _close_stack(stack: AsyncExitStack) -> None:
         except TimeoutError:
             continue
 
+    # 清理失败优先传播，成功后再恢复外层取消
     task.result()
     if cancelled:
         raise asyncio.CancelledError
@@ -57,6 +61,7 @@ async def _close_stack(stack: AsyncExitStack) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """为当前应用提供独立资源，正常退出、取消或启动失败均执行收尾"""
+    # 本次启动独立持有资源与失败状态
     settings = cast(Settings, app.state.settings)
     modules = cast(tuple[AuthModule, ...], app.state.auth_modules)
     stack = AsyncExitStack()
@@ -68,15 +73,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         # 每创建成功一个资源立即登记，失败路径也执行逆序收尾
         engine = database_provider.create_engine(settings)
         stack.push_async_callback(engine.dispose)
+
+        # Redis 配额与业务客户端共享池，但分别登记关闭
         pool = database_provider.create_redis_pool(settings)
         stack.push_async_callback(pool.aclose)
         redis_client = redis.Redis(connection_pool=pool)
         stack.push_async_callback(redis_client.aclose)
         limiter = rate_limiter_provider.create_limiter(pool, settings.REDIS_KEY_PREFIX)
         stack.push_async_callback(limiter.client.aclose)
+
+        # HTTP 客户端独立收尾
         http_client = httpx_provider.create_client()
         stack.push_async_callback(http_client.aclose)
 
+        # 资源齐备后才对应用暴露
         app.state.resources = Resources(
             engine, database_provider.create_session_factory(engine), pool, redis_client, http_client, limiter
         )
@@ -87,20 +97,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             if module.lifespan is not None and id(module.lifespan) not in started:
                 started.add(id(module.lifespan))
                 await stack.enter_async_context(module.lifespan(app))
+
         yield
     except BaseException as exc:
         # 框架会将生命周期异常序列化到日志，未知输入必须在此截断
         primary = exc
         if isinstance(exc, asyncio.CancelledError):
             raise asyncio.CancelledError from None
+
         # 安全说明不代表原异常链也可公开
         if isinstance(exc, SafeValueError):
             raise SafeValueError(str(exc)) from None
         if not isinstance(exc, Exception):
             raise
+
+        # 未知异常只保留安全日志，不泄漏原始异常链
         logging_provider.log_failure(exc)
         raise RuntimeError('Application lifecycle failed') from None
     finally:
+        # 收尾失败不得掩盖原始失败，资源引用始终清除
         try:
             await _close_stack(stack)
         except Exception as exc:

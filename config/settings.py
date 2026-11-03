@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     def validate_proxies(cls, value: str) -> str:
         if not value.strip():
             return ''
+
         addresses = _PROXY_ADAPTER.validate_python([part.strip() for part in value.split(',')])
         return ','.join(str(address) for address in addresses)
 
@@ -101,9 +102,12 @@ class Settings(BaseSettings):
     def validate_secret(cls, value: SecretStr | None) -> SecretStr | None:
         if value is None:
             return None
+
+        # 密钥须同时满足字节长度和非占位内容的约束
         raw = value.get_secret_value()
         if len(raw.encode('utf-8')) < 32 or raw.lower() in _PLACEHOLDERS or raw.lower().startswith('replace-'):
             raise SafeValueError('A non-placeholder secret of at least 32 bytes is required')
+
         return value
 
     @model_validator(mode='after')
@@ -118,6 +122,8 @@ class Settings(BaseSettings):
                 raise SafeValueError('Production requires APP_DEBUG=false')
             if self.REDIS_KEY_PREFIX == 'fastapi':
                 raise SafeValueError('Production requires an application-specific REDIS_KEY_PREFIX')
+
+            # 依赖服务凭据必须显式提供且不能是演示占位值
             for name in ('POSTGRES_PASSWORD', 'REDIS_PASSWORD'):
                 secret = self.POSTGRES_PASSWORD if name == 'POSTGRES_PASSWORD' else self.REDIS_PASSWORD
                 raw = secret.get_secret_value()
@@ -128,6 +134,7 @@ class Settings(BaseSettings):
                     or raw.lower().startswith('replace-')
                 ):
                     raise SafeValueError(f'Production requires explicit non-demo {name}')
+
         return self
 
     @property

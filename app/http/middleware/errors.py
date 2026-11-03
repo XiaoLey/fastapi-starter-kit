@@ -31,6 +31,8 @@ class ExceptionBoundary:
         if scope['type'] not in ('http', 'websocket'):
             await self.app(scope, receive, send)
             return
+
+        # 协议状态仅属于当前请求，供失败路径判断能否继续发送
         state = _State()
 
         async def tracked_receive() -> Message:
@@ -60,6 +62,7 @@ class ExceptionBoundary:
                 state.disconnected = True
                 raise
 
+        # 所有下游收发均经过状态跟踪，失败后按实际阶段响应
         try:
             await self.app(scope, tracked_receive, tracked_send)
         except WebSocketDisconnect:
@@ -88,6 +91,7 @@ class ExceptionBoundary:
             # 已关闭或已收到断连时不发送第二个响应
             if state.closed or state.disconnected or state.denial_complete:
                 return
+
             try:
                 # 已开始拒绝握手时只结束原响应
                 if state.denial_started:

@@ -14,6 +14,7 @@ _DEVICES = {'CON', 'PRN', 'AUX', 'NUL'} | {f'{prefix}{n}' for prefix in ('COM', 
 
 def check_file_name_safty(file_name: str, base_dir: str) -> str:
     """返回基目录范围内解析后的绝对路径；不解码URL，也不保证后续打开免于TOCTOU"""
+    # 先限制路径文本的形态，再检查跨平台路径边界
     try:
         _LOCAL.validate_python(file_name)
     except ValidationError:
@@ -36,18 +37,22 @@ def check_file_name_safty(file_name: str, base_dir: str) -> str:
         path.relative_to(base)
     except (ValueError, OSError, RuntimeError):
         raise InvalidFileNameError() from None
+
     return str(path)
 
 
 def check_oss_file_name_safety(file_name: str, base_dir: str | None = None) -> str:
     """校验对象存储相对key；base_dir仅作key前缀，不表示本地目录"""
+    # 规范化对象 key 文本，不按本地文件系统解析
     normalized = file_name.strip().replace('\\', '/')
     try:
         _OBJECT.validate_python(normalized)
     except ValidationError:
         raise InvalidFileNameError() from None
 
+    # 拒绝空段和目录跳转，前缀只参与最终 key 拼接
     parts = normalized.split('/')
     if len(parts) > 10 or any(part in ('', '.', '..') for part in parts):
         raise InvalidFileNameError()
+
     return f'{base_dir.rstrip("/")}/{normalized}' if base_dir else normalized

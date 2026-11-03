@@ -56,11 +56,15 @@ class RegistrationSc(BaseSc):
 
     @model_validator(mode='after')
     def validate_relationships(self) -> Self:
+        # 一次注册不能重复声明相同种类的本地身份
         kinds = [item.kind for item in self.identities]
         if len(kinds) != len(set(kinds)):
             raise SafeValueError('Each local identity kind may occur only once')
+
+        # 用户名身份必须同时提供可用密码
         if 'username' in kinds and self.password is None:
             raise SafeValueError('Username registration requires a password')
+
         return self
 
 
@@ -79,6 +83,8 @@ def build_router(modules: Sequence[AuthModule]) -> APIRouter:
         kinds = {item.kind for item in data.identities}
         if not kinds <= options.registration_identifiers:
             raise ApiError(422, 'REGISTRATION_NOT_SUPPORTED', '包含未启用的注册身份')
+
+        # 注册后的账号必须具有当前组合允许的登录方式
         if data.password is not None:
             if not kinds.intersection(options.password_identifiers):
                 raise ApiError(422, 'PASSWORD_NOT_SUPPORTED', '此组合不支持密码注册')
@@ -98,12 +104,15 @@ def build_router(modules: Sequence[AuthModule]) -> APIRouter:
         # 证明只消费一次，后续数据库失败不恢复验证码
         identities: list[PreparedIdentity] = []
         for item in data.identities:
+            # 联系方式身份必须先完成所有权证明
             verified_at: datetime | None = None
             if isinstance(item, (PhoneRegistrationSc, EmailRegistrationSc)):
                 await local_auth_service.verify_contact_code(
                     request, kind=item.kind, identifier=item.identifier, code=item.verification_code, purpose='register'
                 )
                 verified_at = datetime.now(UTC)
+
+            # 把通过校验的身份交给同一建号事务
             identities.append(
                 PreparedIdentity(
                     namespace=identity_namespace(item.kind), subject=item.identifier, verified_at=verified_at
@@ -122,9 +131,12 @@ def build_router(modules: Sequence[AuthModule]) -> APIRouter:
                 db.add(PasswordCredentialModel(user_id=user_id, password_hash=password_hash))
 
             writer = write_password
+
+        # 身份、主体与可选密码凭据一并创建成功后才返回资料
         user = await identity_service.create_account(
             session, identities, profile=data.profile, write_credentials=writer
         )
+
         return UserSc.model_validate(user)
 
     # 注册证明不依赖相同通道的OTP登录是否启用

@@ -60,6 +60,8 @@ async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, 
                 ).all()
             )
             assert not {'username', 'cellphone', 'password'}.intersection(columns)
+
+            # 保存初始审计时间，供后续事务验证更新时间触发器
             first = await connection.scalar(
                 sa.text(
                     "INSERT INTO users (nickname,gender,avatar,is_admin) VALUES ('用户一','unknown','',false) RETURNING id"
@@ -89,6 +91,8 @@ async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, 
                 sa.text("INSERT INTO password_credentials(user_id,password_hash) VALUES (:id,'test-credential')"),
                 {'id': first},
             )
+
+        # 同域同 subject 不能指向另一个主体
         with pytest.raises(IntegrityError):
             async with engine.begin() as connection:
                 await connection.execute(
@@ -97,6 +101,8 @@ async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, 
                     ),
                     {'id': second},
                 )
+
+        # 外键约束拒绝不存在的主体
         with pytest.raises(IntegrityError):
             async with engine.begin() as connection:
                 await connection.execute(
@@ -121,6 +127,8 @@ async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, 
                 == 0
             )
             assert await connection.scalar(sa.text("SELECT to_regprocedure('update_updated_at_column()')")) is None
+
+        # 完整回退后仍能从空库重建并保持 schema 无差异
         await migrate(database_url, cwd=tmp_path)
         await migrate(database_url, 'check')
         async with engine.connect() as connection:

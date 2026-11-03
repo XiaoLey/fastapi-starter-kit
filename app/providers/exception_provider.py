@@ -22,8 +22,12 @@ def register(app: FastAPI) -> None:
     async def handle_http(connection: HTTPConnection, exc: HTTPException) -> Response:
         if connection.scope['type'] == 'websocket':
             raise exc
+
+        # 业务异常保留已声明的状态和安全文案
         if isinstance(exc, ApiError):
             return error_response(exc)
+
+        # 普通认证失败同样提供标准挑战头
         if exc.status_code == 401:
             headers = dict(exc.headers) if exc.headers else {}
             if not any(key.lower() == 'www-authenticate' for key in headers):
@@ -51,5 +55,7 @@ def register(app: FastAPI) -> None:
     async def handle_internal_validation(connection: HTTPConnection, exc: Exception) -> Response:
         if connection.scope['type'] == 'websocket':
             raise exc
+
+        # 内部校验错误只记日志，对外统一为固定服务错误
         log_failure(exc)
         return error_response(ApiError(500, 'UNKNOWN_ERROR', '内部服务错误'))

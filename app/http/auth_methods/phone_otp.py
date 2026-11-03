@@ -40,14 +40,17 @@ def build_module(settings: Settings) -> AuthModule:
     async def login(
         request: Request, data: PhoneLoginSc, session: Annotated[AsyncSession, Depends(database_deps.get_db)]
     ) -> TokenSc:
-        # 消费证明后只解析这一个已验证身份，不猜测或绑定其他身份
+        # 本次登录须先消费手机所有权证明
         await local_auth_service.verify_contact_code(
             request, kind='phone', identifier=data.phone, code=data.verification_code, purpose='login'
         )
+
+        # 只解析已证明的手机身份，不猜测或绑定其他身份
         identity = PreparedIdentity(
             namespace=identity_namespace('phone'), subject=data.phone, verified_at=datetime.now(UTC)
         )
         user = await resolve_verified_user(session, identity)
+
         return create_token_response_from_user(user, get_jwt_settings(request))
 
     return local_auth_service.LocalAuthModule(

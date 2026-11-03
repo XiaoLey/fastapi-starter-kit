@@ -23,6 +23,8 @@ def test_real_main_proxy_boundary(tmp_path: Path, trusted: str) -> None:
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         port = listener.getsockname()[1]
+
+    # 外部宽泛信任与入口显式配置同时存在时，以入口为准
     settings = make_settings(APP_SERVER_PORT=port, APP_TRUSTED_PROXY_IPS=trusted)
     environment = settings_environment(settings)
     environment['FORWARDED_ALLOW_IPS'] = '*'
@@ -44,6 +46,8 @@ def run_probe(_app, **options):
 uvicorn.run = run_probe
 main.main()
 """
+
+    # 保存真实子进程日志，失败和退出路径均可检查
     log_path = tmp_path / 'uvicorn.log'
     with log_path.open('w', encoding='utf-8') as output:
         process = subprocess.Popen(
@@ -87,6 +91,7 @@ main.main()
                     process.kill()
                     process.wait(timeout=5)
                     pytest.fail('Uvicorn did not terminate gracefully')
+
     # 正常信号退出仍必须完成应用收尾
     assert process.returncode in (0, -signal.SIGTERM)
     output = log_path.read_text(encoding='utf-8')
@@ -111,6 +116,8 @@ def register(schedule, runner):
 bootstrap.register_asyncio_jobs = register
 asyncio.run(scheduler.run_scheduler())
 """
+
+    # 作业完成标记与日志由独立调度进程写入
     log_path = tmp_path / 'scheduler.log'
     with log_path.open('w', encoding='utf-8') as output:
         process = subprocess.Popen(
@@ -127,6 +134,8 @@ asyncio.run(scheduler.run_scheduler())
                 if process.poll() is not None or time.monotonic() >= deadline:
                     pytest.fail(log_path.read_text(encoding='utf-8'))
                 time.sleep(0.05)
+
+            # 作业已开始后发出停止信号，退出必须等到作业完成
             process.send_signal(signal.SIGTERM)
             assert process.wait(timeout=10) == 0 and finished.exists()
         finally:

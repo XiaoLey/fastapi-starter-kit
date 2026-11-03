@@ -33,8 +33,11 @@ def create_limiter(pool: redis.ConnectionPool, prefix: str) -> Limiter:
         key_prefix=f'{prefix}:limits',
         connection_pool=pool,  # pyright: ignore[reportArgumentType]
     )
+
+    # 生命周期收尾只接管已确认实现的底层客户端
     bridge = storage.bridge
     if not isinstance(bridge, RedispyBridge):
         raise TypeError('Limiter requires the redispy implementation')
     client = cast(redis.Redis, bridge.get_connection())  # pyright: ignore[reportInvalidCast]
+
     return Limiter(FixedWindowRateLimiter(storage), client)

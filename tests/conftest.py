@@ -149,6 +149,8 @@ async def database_url() -> AsyncIterator[URL]:
     raw = os.environ.get('TEST_DATABASE_URL')
     if not raw:
         pytest.skip('Requires explicit TEST_DATABASE_URL')
+
+    # 只接受命名明确的独立测试 control 库
     control = make_url(raw)
     if (
         control.drivername != 'postgresql+asyncpg'
@@ -169,6 +171,7 @@ async def database_url() -> AsyncIterator[URL]:
             created = True
         yield control.set(database=name)
     finally:
+        # 只销毁本次成功创建的随机库，始终释放连接资源
         try:
             if created:
                 async with engine.connect() as connection:
@@ -183,6 +186,7 @@ async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
     raw = os.environ.get('TEST_REDIS_URL')
     if not raw:
         pytest.skip('Requires explicit TEST_REDIS_URL')
+
     parsed = urlsplit(raw)
     if parsed.scheme != 'redis' or parsed.hostname is None or parsed.username not in (None, '', 'default'):
         raise ValueError('Use an explicit redis:// URL with the default user')
@@ -206,6 +210,7 @@ async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
     try:
         yield settings
     finally:
+        # 只清理本用例前缀，不清空整个 Redis 数据库
         client = redis.Redis.from_url(raw, decode_responses=True)
         try:
             keys = cast(AsyncIterator[str], client.scan_iter(match=f'{prefix}:*', count=100))
@@ -239,6 +244,8 @@ async def app_factory(integration_settings: Settings) -> AsyncIterator[AppFactor
                 'AUTH_CODE_SECRET_KEY': 'test-code-key-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy',
                 **overrides,
             })
+
+            # 应用和 HTTP 客户端均纳入本 fixture 的退出栈
             app = create_app(
                 settings,
                 auth_module_factories=factories,

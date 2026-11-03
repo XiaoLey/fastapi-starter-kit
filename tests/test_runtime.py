@@ -24,6 +24,7 @@ from tests.conftest import SENSITIVE_TEST_VALUE, AppFactory, EmailRecorder, SmsR
 
 
 def test_factory_defaults_to_no_auth_and_validates_module_selection() -> None:
+    # 默认装配不要求认证密钥，也不创建运行资源
     app = create_app(make_settings(APP_API_PREFIX='/v2', APP_DEBUG=True))
     assert app.state.resources is None and app.state.jwt_settings is None
     schema = app.openapi()
@@ -86,6 +87,7 @@ async def test_explicit_business_routes_keep_health_independent(monkeypatch: pyt
 
 
 async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_messages: list[str]) -> None:
+    # 选择联系方式认证但缺少发送器时，启动必须失败并收尾
     settings = make_settings(
         AUTH_MODULES=['password', 'phone_otp', 'email_otp'],
         JWT_SECRET_KEY='test-jwt-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -119,6 +121,8 @@ async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_mes
         local = cast(LocalResources, first.state.local_auth_resources)
         assert isinstance(local.sms_sender, SmsRecorder) and isinstance(local.email_sender, EmailRecorder)
         assert len(created_sms) == len(created_email) == 1
+
+        # 同时启动的另一个应用必须拥有独立的基础资源和发送器
         async with second.router.lifespan_context(second):
             other = cast(Resources, second.state.resources)
             other_local = cast(LocalResources, second.state.local_auth_resources)
@@ -127,9 +131,12 @@ async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_mes
             )
             assert resource.engine is not other.engine and resource.redis_pool is not other.redis_pool
             assert len(created_sms) == len(created_email) == 2
+
+        # 另一个应用退出不能影响仍在运行的应用
         assert other_local.sms_sender.closed and other_local.email_sender.closed
         assert not local.sms_sender.closed and not local.email_sender.closed
         assert other.httpx_client.is_closed and not resource.httpx_client.is_closed
+
     assert local.sms_sender.closed and local.email_sender.closed and resource.httpx_client.is_closed
 
     # 重复 lifespan 必须得到新实例，不能复活已经关闭的发送器
@@ -242,6 +249,7 @@ async def test_safe_validation_and_http_errors(log_messages: list[str], caplog: 
                 assert response.headers['Access-Control-Allow-Origin'] == 'https://browser.example'
                 assert SENSITIVE_TEST_VALUE not in response.text
 
+    # 日志保留定位信息，但不能含请求或异常中的秘密
     assert 'tests/test_runtime.py:' in ''.join(log_messages)
     assert SENSITIVE_TEST_VALUE not in ''.join(log_messages) + caplog.text
 
@@ -266,6 +274,7 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
 
     @asynccontextmanager
     async def failing(app: FastAPI) -> AsyncGenerator[None]:
+        # 分别制造生命周期失败，安全说明仍保留不可信异常链
         if phase == 'startup':
             raise RuntimeError(f'{SENSITIVE_TEST_VALUE}-startup')
         if phase == 'cancel':
@@ -275,6 +284,7 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
                 raise RuntimeError(SENSITIVE_TEST_VALUE)
             except RuntimeError as exc:
                 raise SafeValueError('Module configuration is incomplete') from exc
+
         yield
 
     # 后一个模块失败时，先前模块和基础资源仍按逆序关闭
@@ -285,6 +295,8 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
             'failing': lambda settings: AuthModule(router=APIRouter(), lifespan=failing),
         },
     )
+
+    # 通过真实 ASGI 生命周期消息驱动启动和关闭
     incoming: asyncio.Queue[Message] = asyncio.Queue()
     incoming.put_nowait({'type': 'lifespan.startup'})
     incoming.put_nowait({'type': 'lifespan.shutdown'})
@@ -304,6 +316,8 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
             'safe': 'Module configuration is incomplete',
         }
         assert str(failure.value) == expected[phase]
+
+    # 失败消息不得泄密，已创建资源和模块仍须完整关闭
     failed_type = 'lifespan.shutdown.failed' if phase == 'shutdown' else 'lifespan.startup.failed'
     assert sent[-1]['type'] == failed_type
     assert SENSITIVE_TEST_VALUE not in str(sent) + ''.join(log_messages)
@@ -315,11 +329,14 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
 async def test_no_auth_public_api_and_dependency_outage(
     app_factory: AppFactory, integration_settings: Settings
 ) -> None:
+    # 零认证应用保留公共探针，不要求认证密钥或发送器
     application = await app_factory(JWT_SECRET_KEY=None, AUTH_CODE_SECRET_KEY=None)
     client = application.client
     assert application.app.state.jwt_settings is None and application.sms is None and application.email is None
     assert (await client.get('/api/ping')).json() == 'pong'
     assert (await client.get('/api/health/ready')).status_code == 200
+
+    # 未选择的认证和用户入口全部缺席
     for path, method in (
         ('/api/auth/register', 'POST'),
         ('/api/auth/password/token', 'POST'),

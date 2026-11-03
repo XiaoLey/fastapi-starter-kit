@@ -17,9 +17,12 @@ def _aware(dt: datetime, source_timezone_str: str | None, fold: Literal[0, 1] | 
         raise ValueError('Nonexistent local time')
     if all(valid) and candidates[0].utcoffset() != candidates[1].utcoffset() and fold is None:
         raise ValueError('Ambiguous local time requires explicit fold')
+
+    # 选中的歧义分支也必须是有效本地时刻
     selected = fold if fold is not None else 0
     if not valid[selected]:
         raise ValueError('Invalid fold for local time')
+
     return candidates[selected]
 
 
@@ -45,9 +48,11 @@ def parse_datetime_in_timezone(
         ValueError: 解析失败、缺少源时区、本地时刻不存在或歧义未选择fold
         ZoneInfoNotFoundError: 源或目标时区名称无效
     """
+    # 解析输入并保留显式 UTC 后缀的含义
     parsed = datetime.strptime(time_str, time_format) if time_format else datetime.fromisoformat(time_str)
     if time_str.endswith('Z') and parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
+
     return _aware(parsed, source_timezone_str, fold).astimezone(ZoneInfo(timezone_str))
 
 

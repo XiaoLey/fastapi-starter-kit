@@ -18,6 +18,8 @@ class JobRunner:
             task = asyncio.current_task()
             if task is None:
                 raise RuntimeError('Job requires an asyncio task')
+
+            # 在途登记覆盖作业的完整执行周期
             self.tasks.add(task)
             try:
                 return await job(*args, **kwargs)
@@ -31,7 +33,11 @@ class JobRunner:
         await asyncio.sleep(0)
         if not self.tasks:
             return
+
+        # 给予已登记作业协作完成的窗口
         _, pending = await asyncio.wait(tuple(self.tasks), timeout=grace_seconds)
+
+        # 超时作业取消后仍需等待收尾
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
@@ -50,6 +56,8 @@ def create_asyncio_scheduler(runner: JobRunner) -> AsyncIOScheduler:
 async def stop_scheduler(scheduler: AsyncIOScheduler, runner: JobRunner, grace_seconds: float = 30) -> None:
     if not scheduler.running:
         return
+
+    # 停止接收新作业，再等待在途任务
     scheduler.pause()
     await runner.drain(grace_seconds)
 

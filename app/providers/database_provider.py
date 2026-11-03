@@ -19,6 +19,8 @@ def _set_transaction_time_zone(session: _Session, transaction: SessionTransactio
     zone = session.info.get('time_zone', 'Asia/Shanghai')
     if not isinstance(zone, str):
         raise TypeError('Session time zone must be a string')
+
+    # 时区只作用于当前事务，不污染连接池中的后续会话
     connection.execute(sa.text("SELECT set_config('TimeZone', :zone, true)"), {'zone': zone})
 
 

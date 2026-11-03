@@ -23,6 +23,7 @@ async def live() -> LiveSc:
 
 @router.get('/health/ready', response_model=ReadySc, responses={503: {'model': ReadySc}})
 async def ready(request: Request, response: Response) -> ReadySc:
+    # 探测失败保持不可用状态，不暴露底层异常
     resources = get_resources(request)
     statuses = {'database': 'unavailable', 'redis': 'unavailable'}
 
@@ -54,6 +55,7 @@ async def ready(request: Request, response: Response) -> ReadySc:
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    # 只有所有依赖都可用时才报告就绪
     is_ready = all(value == 'ok' for value in statuses.values())
     response.status_code = 200 if is_ready else 503
     return ReadySc(status='ready' if is_ready else 'not_ready', **statuses)

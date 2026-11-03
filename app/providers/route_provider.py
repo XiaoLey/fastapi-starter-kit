@@ -40,15 +40,20 @@ def boot(app: FastAPI, settings: Settings, modules: Sequence[AuthModule]) -> Non
     # 有效上下文包含延迟装配的嵌套路由，不能只检查顶层 routes
     signatures: set[tuple[str, str]] = set()
     for context in iter_route_contexts(app.routes):
+        # 只接纳可产生请求的 HTTP 和 WebSocket 路由
         if isinstance(context.original_route, Route):
             methods = context.methods or set()
         elif isinstance(context.original_route, WebSocketRoute):
             methods = {'WEBSOCKET'}
         else:
             continue
+
+        # 路径取完整装配上下文，包含所有父级前缀
         path = context.path
         if path is None:
             continue
+
+        # 同一路径只允许每种协议或 HTTP 方法登记一次
         for method in methods:
             signature = (method, path)
             if signature in signatures:

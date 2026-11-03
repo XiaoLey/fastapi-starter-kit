@@ -52,6 +52,7 @@ def collect_ddls() -> tuple[list[DDL], set[str]]:
         if previous is not None and previous != entity:
             raise ValueError(f'Conflicting DDL identity: {entity.name}')
         unique[entity.name] = entity
+
     return list(unique.values()), view_names
 
 
@@ -71,6 +72,7 @@ def prepare_schema_migration(
         return isinstance(script, (DDL, RevisionedScript)) and script.name not in initial_names
 
     for directive in directives:
+        # 升级时先建表，再创建依赖这些表的对象
         for upgrade in directive.upgrade_ops_list:
             attached = [
                 operation
@@ -78,6 +80,8 @@ def prepare_schema_migration(
                 if isinstance(operation, SyncDDLOp) and belongs_to_model(operation.up_script)
             ]
             upgrade.ops[:] = [operation for operation in upgrade.ops if operation not in attached] + attached
+
+        # 回退时先移除依赖对象，再删除所属表
         for downgrade in directive.downgrade_ops_list:
             attached = [
                 operation
@@ -89,6 +93,8 @@ def prepare_schema_migration(
     # PostgreSQL删表不会自动清除其命名enum，只处理初始化拥有的类型
     if any(revisions):
         return
+
+    # 从当前元数据收集初始化拥有的原生枚举全名
     names: set[str] = set()
     quote = context.dialect.identifier_preparer.quote
     for table in Base.metadata.tables.values():
@@ -100,6 +106,7 @@ def prepare_schema_migration(
                     name = f'{quote(type_.schema)}.{name}'
                 names.add(name)
 
+    # 枚举清理置于所有删表操作之后
     for directive in directives:
         for downgrade in directive.downgrade_ops_list:
             downgrade.ops.extend(ops.ExecuteSQLOp(f'DROP TYPE IF EXISTS {name}') for name in sorted(names))

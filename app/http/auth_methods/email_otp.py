@@ -44,10 +44,13 @@ def build_module(settings: Settings) -> AuthModule:
         await local_auth_service.verify_contact_code(
             request, kind='email', identifier=data.email, code=data.verification_code, purpose='login'
         )
+
+        # 只解析已证明的邮箱身份，不猜测或绑定其他身份
         identity = PreparedIdentity(
             namespace=identity_namespace('email'), subject=data.email, verified_at=datetime.now(UTC)
         )
         user = await resolve_verified_user(session, identity)
+
         return create_token_response_from_user(user, get_jwt_settings(request))
 
     return local_auth_service.LocalAuthModule(

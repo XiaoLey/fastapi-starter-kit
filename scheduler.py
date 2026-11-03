@@ -8,8 +8,11 @@ from config.settings import load_settings
 
 
 async def run_scheduler() -> None:
+    # 为独立调度进程加载配置并初始化日志
     settings = load_settings()
     initialize(settings)
+
+    # 将调度任务和停止状态绑定到当前事件循环
     stop = asyncio.Event()
     runner = JobRunner()
     scheduler = create_asyncio_scheduler(runner)
@@ -21,6 +24,8 @@ async def run_scheduler() -> None:
         for signum in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(signum, stop.set)
             installed.append(signum)
+
+    # 运行至停止信号或取消，退出时统一收尾
     try:
         scheduler.start()
         await stop.wait()

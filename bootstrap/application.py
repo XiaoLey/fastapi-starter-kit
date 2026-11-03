@@ -37,6 +37,8 @@ def create_app(
 
         auth_module_factories = builtin_factories()
     modules = resolve_modules(settings, auth_module_factories)
+
+    # 仅在所选模块使用本地 token 时校验签发配置
     jwt_settings: JwtSettings | None = None
     if any(module.uses_local_tokens for module in modules):
         try:
@@ -48,6 +50,7 @@ def create_app(
             ]
             raise SafeValueError(f'Invalid local token settings: {errors}') from None
 
+    # 保存装配结果，运行资源留待应用启动时创建
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
@@ -68,4 +71,5 @@ def create_app(
     exception_provider.register(app)
     middleware_provider.register(app, settings)
     route_provider.boot(app, settings, modules)
+
     return app

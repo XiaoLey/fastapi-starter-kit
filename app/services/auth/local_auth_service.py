@@ -84,6 +84,7 @@ def get_local_resources(connection: HTTPConnection) -> LocalResources:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """仅为已声明的本地能力提供资源，退出或启动失败均关闭已创建的发送器"""
+    # 只从已装配模块推导本次启动需要的联系方式能力
     settings = cast(Settings, app.state.settings)
     modules = cast(tuple[AuthModule, ...], app.state.auth_modules)
     options = local_options(modules)
@@ -100,17 +101,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 for error in exc.errors(include_input=False)
             ]
             raise SafeValueError(f'Invalid verification code settings: {errors}') from None
+
+        # 两类签名用途不能复用同一密钥
         if codes.AUTH_CODE_SECRET_KEY == settings.JWT_SECRET_KEY:
             raise SafeValueError('Verification code and JWT secrets must differ')
 
+    # 只创建需要的通道，成功后立即纳入当前周期的清理范围
     async with AsyncExitStack() as stack:
         sms: SmsSender | None = None
         email: EmailSender | None = None
-        # 只创建需要的通道，成功后立即纳入当前周期的清理范围
+
+        # 短信资源只接受显式提供的发送器工厂
         if 'phone' in contacts:
             sms_factory = cast(Callable[[], SmsSender] | None, app.state.sms_sender_factory)
             if sms_factory is None:
                 raise SafeValueError('Phone registration/login requires sms_sender_factory')
+
+            # 创建失败只报告安全说明，成功后登记关闭
             try:
                 sms = sms_factory()
             except Exception as exc:
@@ -118,10 +125,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 raise SafeValueError('SMS sender initialization failed') from None
             stack.push_async_callback(sms.aclose)
 
+        # 邮件通道独立按需创建和收尾
         if 'email' in contacts:
             email_factory = cast(Callable[[], EmailSender] | None, app.state.email_sender_factory)
             if email_factory is None:
                 raise SafeValueError('Email registration/login requires email_sender_factory')
+
+            # 创建失败只报告安全说明，成功后登记关闭
             try:
                 email = email_factory()
             except Exception as exc:
@@ -146,6 +156,7 @@ async def send_contact_code(
     client_ip: str,
 ) -> None:
     """交付并发布已规范化接收者的验证码，正常返回不保证最终送达"""
+    # 将本次交付绑定到当前应用的配置与资源
     local = get_local_resources(connection)
     resources = get_resources(connection)
     codes = local.codes
@@ -163,6 +174,7 @@ async def send_contact_code(
         else:
             raise RuntimeError('Required verification sender is not available')
 
+    # 配额、验证码发布与失败清理由统一流程负责
     await verification_code_service.send_code(
         resources.redis_client,
         resources.limiter,

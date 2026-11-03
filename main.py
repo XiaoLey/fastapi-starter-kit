@@ -5,6 +5,7 @@ from config.settings import load_settings
 
 
 def main() -> None:
+    # 在服务器启动前完成进程配置和日志初始化
     settings = load_settings()
     initialize(settings)
 

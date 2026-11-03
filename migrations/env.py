@@ -18,10 +18,13 @@ config = context.config
 # 新模型必须在 schema 比较前进入共享 metadata
 for module_name in sorted(info.name for info in pkgutil.walk_packages(models.__path__, f'{models.__name__}.')):
     importlib.import_module(module_name)
+
+# 用本项目元数据登记迁移所需的附属 DDL
 install_ddl_compatibility()
 entities, view_names = collect_ddls()
 register_project_ddls(entities)
 
+# 离线与在线迁移共用同一配置和日志入口
 database_url = load_settings().database_url
 config.set_main_option('sqlalchemy.url', database_url.render_as_string(hide_password=False).replace('%', '%%'))
 if config.config_file_name is not None:

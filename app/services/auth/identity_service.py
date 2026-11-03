@@ -61,6 +61,8 @@ async def create_account(
             )
             for item in identities
         ])
+
+        # 在凭据写入前定位身份唯一键竞争
         try:
             await session.flush()
         except IntegrityError as exc:
@@ -83,12 +85,15 @@ async def create_account(
             await write_credentials(session, user.id)
             await session.flush()
 
+    # 建号单元全部成功后提交外层事务
     await session.commit()
+
     return user
 
 
 async def resolve_verified_user(session: AsyncSession, identity: PreparedIdentity) -> UserModel:
     """复用已验证身份或首次建号，不自动关联其他域的身份"""
+    # 复用现有归属，首次建号的并发竞争只回读相同身份
     user = await find_user(session, namespace=identity.namespace, subject=identity.subject)
     if user is None:
         try:
@@ -100,4 +105,5 @@ async def resolve_verified_user(session: AsyncSession, identity: PreparedIdentit
 
     if not user.is_enabled():
         raise AuthenticationError()
+
     return user

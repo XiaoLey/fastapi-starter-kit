@@ -86,6 +86,8 @@ async def send_code(
     await limiter.hit(5, 60, 'auth-code:ip:minute', client_ip)
     await limiter.hit(20, 3600, 'auth-code:ip:hour', client_ip)
     await limiter.hit(5, 3600, 'auth-code:recipient:hour', identity)
+
+    # 冷却占位携带归属，防止晚到清理误删其他发送请求的状态
     base = f'{settings.REDIS_KEY_PREFIX}:auth-code:{identity}'
     owner = secrets.token_hex(16)
     if not await redis.set(f'{base}:cooldown', owner, ex=settings.AUTH_CODE_SEND_INTERVAL_SECONDS, nx=True):
@@ -104,8 +106,11 @@ async def send_code(
     # 新码发布前旧码仍有效，所有晚到操作都要比较占位归属
     code = numeric_random(6)
     try:
+        # 供应商接受新码后才能尝试发布
         async with asyncio.timeout(10):
             await deliver(code)
+
+        # 只有仍持有占位的发送请求可以替换当前验证码
         published = await cast(
             Awaitable[object],
             redis.eval(
@@ -121,6 +126,7 @@ async def send_code(
         if _INT.validate_python(published) != 1:
             raise DependencyUnavailableError()
     except asyncio.CancelledError:
+        # 取消同样释放自身占位，并等待清理任务结束
         cleanup = asyncio.create_task(release_owned())
         try:
             await asyncio.shield(cleanup)

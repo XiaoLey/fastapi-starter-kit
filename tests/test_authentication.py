@@ -39,6 +39,7 @@ def headers(response: httpx.Response) -> dict[str, str]:
 
 
 async def test_password_lifecycle_and_unavailable_account(app_factory: AppFactory) -> None:
+    # 注册普通密码账号，并确认重复注册不会创建额外归属
     application = await app_factory(AUTH_MODULES=['password'], AUTH_CODE_SECRET_KEY=None)
     client = application.client
     registration = {
@@ -69,6 +70,8 @@ async def test_password_lifecycle_and_unavailable_account(app_factory: AppFactor
     assert (await client.delete('/api/auth/token', headers=first)).status_code == 200
     assert (await client.get('/api/users/me', headers=first)).status_code == 401
     assert (await client.get('/api/users/me', headers=second)).status_code == 200
+
+    # 凭据已持久化；停用主体后新旧访问凭据都不能继续使用
     async with application.resources.session_factory() as session:
         credential = await session.get(PasswordCredentialModel, user_id)
         assert credential is not None and credential.password_hash.startswith('$argon2')
@@ -115,6 +118,7 @@ async def test_otp_only_delivery_ownership_and_reuse(
         module_id = 'phone_alias'
         factories = {module_id: wrapped_phone}
 
+    # 只创建所选通道资源，后续从公开接口验证证明和账号归属
     application = await app_factory(AUTH_MODULES=[module_id], factories=factories, AUTH_CODE_SEND_INTERVAL_SECONDS=1)
     client = application.client
     sender = application.sms if kind == 'phone' else application.email
@@ -173,6 +177,7 @@ async def test_otp_only_delivery_ownership_and_reuse(
         assert identity is not None and identity.namespace == f'local/{kind}' and identity.verified_at is not None
         assert identity.subject == identifier.lower()
 
+    # 未启用方式既不能访问，也不应出现在 OpenAPI 中
     assert (await client.post('/api/auth/password/token', json={})).status_code == 404
     opposite = 'email' if kind == 'phone' else 'phone'
     assert (await client.post(f'/api/auth/{opposite}/token', json={})).status_code == 404
@@ -183,6 +188,7 @@ async def test_otp_only_delivery_ownership_and_reuse(
 
 
 async def test_phone_password_does_not_enable_phone_otp(app_factory: AppFactory) -> None:
+    # 手机密码身份需要所有权证明，但不应自动启用手机 OTP
     application = await app_factory(AUTH_MODULES=['password'], AUTH_PASSWORD_IDENTIFIERS=['username', 'phone'])
     client, sender = application.client, application.sms
     assert sender is not None and application.email is None
@@ -198,6 +204,8 @@ async def test_phone_password_does_not_enable_phone_otp(app_factory: AppFactory)
         },
     )
     assert created.status_code == 201
+
+    # 多种密码标识解析为同一注册主体
     for kind, identifier in [('username', 'phone-owner'), ('phone', '13800000000')]:
         authorized = headers(
             await client.post(
@@ -206,6 +214,8 @@ async def test_phone_password_does_not_enable_phone_otp(app_factory: AppFactory)
             )
         )
         assert (await client.get('/api/users/me', headers=authorized)).json()['id'] == created.json()['id']
+
+    # 注册证明能力不隐含开放 OTP 登录入口
     for path in ('/api/auth/phone/token', '/api/auth/phone/codes/login'):
         assert (await client.post(path, json={})).status_code == 404
         assert path not in application.app.openapi()['paths']
@@ -229,6 +239,8 @@ async def test_initial_multi_identity_and_no_implicit_binding(app_factory: AppFa
             },
         )
     ).status_code == 422
+
+    # 每个联系方式各自取得证明后才能组合注册
     assert (await client.post('/api/auth/email/codes/register', json={'email': 'Alice@Example.com'})).status_code == 200
     registration = {
         'identities': [
@@ -285,12 +297,15 @@ async def test_initial_multi_identity_and_no_implicit_binding(app_factory: AppFa
 
 
 async def test_concurrent_registration_is_atomic(app_factory: AppFactory) -> None:
+    # 并发争用同一用户名，只允许一个注册成功
     application = await app_factory(AUTH_MODULES=['password'])
     registration = {'identities': [{'kind': 'username', 'identifier': 'same-user'}], 'password': 'long-password-123'}
     results = await asyncio.gather(*[
         application.client.post('/api/auth/register', json=registration) for _ in range(2)
     ])
     assert sorted(result.status_code for result in results) == [201, 409]
+
+    # 唯一键竞争不能留下多余主体、身份或凭据
     async with application.resources.session_factory() as session:
         assert await session.scalar(sa.select(sa.func.count()).select_from(UserModel)) == 1
         assert await session.scalar(sa.select(sa.func.count()).select_from(AuthIdentityModel)) == 1
@@ -312,6 +327,8 @@ async def test_custom_module_alone_uses_public_core_contract(app_factory: AppFac
             # 仅测试接入契约：固定测试证明不进入生产源码
             if not hmac.compare_digest(data.proof.get_secret_value(), 'test-provider-verified-proof'):
                 raise AuthenticationError()
+
+            # 自定义证明也通过公共建号契约解析身份
             user = await resolve_verified_user(
                 session,
                 PreparedIdentity(namespace='test/staff/acme', subject=data.subject, verified_at=datetime.now(UTC)),
@@ -320,6 +337,7 @@ async def test_custom_module_alone_uses_public_core_contract(app_factory: AppFac
 
         return AuthModule(router=router, uses_local_tokens=True)
 
+    # 注册名不决定认证实现，替换后的自定义模块独立可用
     application = await app_factory(
         AUTH_MODULES=['phone_otp'], AUTH_CODE_SECRET_KEY=None, factories={'phone_otp': staff}
     )
@@ -334,9 +352,13 @@ async def test_custom_module_alone_uses_public_core_contract(app_factory: AppFac
         await client.get('/api/users/me', headers=second)
     ).json()['id']
     assert application.sms is None and application.email is None
+
+    # 自定义方式不会隐式装配内置注册或登录入口
     paths = application.app.openapi()['paths']
     for path in ('/api/auth/register', '/api/auth/password/token', '/api/auth/phone/token', '/api/auth/email/token'):
         assert (await client.post(path, json={})).status_code == 404 and path not in paths
+
+    # 身份写入自定义域，不产生内置密码凭据
     async with application.resources.session_factory() as session:
         identity = await session.scalar(sa.select(AuthIdentityModel))
         assert identity is not None and identity.namespace == 'test/staff/acme'
@@ -357,6 +379,8 @@ async def test_unrelated_constraints_do_not_hide_account_failure(app_factory: Ap
                 )
             )
             await session.execute(sa.text('INSERT INTO addon_credentials VALUES (1)'))
+
+            # 在真实身份写入阶段触发外部表约束
             await session.execute(
                 sa.text(f"""
                 CREATE FUNCTION pg_temp.reject_identity() RETURNS trigger AS $$
@@ -373,6 +397,8 @@ async def test_unrelated_constraints_do_not_hide_account_failure(app_factory: Ap
                     'FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_identity()'
                 )
             )
+
+            # 同名约束不等于身份唯一键冲突，必须保留原错误
             with pytest.raises(IntegrityError) as from_identity:
                 await create_account(session, [identity])
             assert getattr(from_identity.value.orig, 'sqlstate', None) == state
