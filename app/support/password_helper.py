@@ -15,7 +15,11 @@ async def get_password_hash(password: str) -> str:
 
 
 async def verify_password(plain_password: str, hashed_password: str | None) -> tuple[bool, str | None]:
-    """返回是否匹配及参数升级后的可选新哈希"""
+    """校验密码，无可用哈希时按不匹配处理
+
+    Returns:
+        是否匹配及可选的替换哈希；仅匹配且需要升级时返回替换值
+    """
     # 无密码账号也执行一次验证，不让账号存在性成为明显的快速分支
     try:
         valid, replacement = await run_in_threadpool(

@@ -44,6 +44,7 @@ return 0
 
 
 def _identity(settings: CodeSettings, namespace: str, channel: str, recipient: str, purpose: Purpose) -> str:
+    """生成按应用、身份域、通道及用途隔离的接收者指纹，不暴露接收者原文"""
     message = json.dumps(
         [settings.REDIS_KEY_PREFIX, namespace, channel, purpose, recipient], separators=(',', ':'), ensure_ascii=True
     )
@@ -53,6 +54,7 @@ def _identity(settings: CodeSettings, namespace: str, channel: str, recipient: s
 
 
 def _digest(settings: CodeSettings, identity: str, generation: str, code: str) -> str:
+    """生成绑定到接收者作用域及发送代次的验证码摘要"""
     return hmac.new(
         settings.AUTH_CODE_SECRET_KEY.get_secret_value().encode(),
         f'{identity}:{generation}:{code}'.encode(),
@@ -72,7 +74,9 @@ async def send_code(
     purpose: Purpose,
     client_ip: str,
 ) -> None:
-    """供应商接受且新challenge确认发布后才成功；超时结果可能未知
+    """交付并发布验证码，确认供应商接受及新码发布才算成功
+
+    已扣配额不会退还。超时或未能确认发送时，不能据此断定供应商没有发送。
 
     Args:
         deliver: 接收新验证码的交付回调，正常返回表示供应商已接受
@@ -103,8 +107,9 @@ async def send_code(
         except Exception:
             return
 
-    # 新码发布前旧码仍有效，所有晚到操作都要比较占位归属
+    # 生成新码不撤下尚有效的旧码
     code = numeric_random(6)
+
     try:
         # 供应商接受新码后才能尝试发布
         async with asyncio.timeout(10):
@@ -134,8 +139,10 @@ async def send_code(
             if not cleanup.done():
                 cleanup.cancel()
                 await asyncio.gather(cleanup, return_exceptions=True)
+
         raise
     except (SmsSendError, EmailSendError, TimeoutError) as exc:
+        # 对外只报告未能确认发送，不暴露供应商异常详情
         log_failure(exc)
         await release_owned()
         raise ApiError(503, 'CODE_SEND_ERROR', '验证码发送未能确认成功') from None
@@ -153,8 +160,9 @@ async def verify_code(
         recipient: 已由所属模块规范化的接收者，规则须与发送时一致
 
     Raises:
-        InvalidVerificationCodeError: 验证码错误、过期或已消费
+        InvalidVerificationCodeError: 验证码错误、过期、已消费或核验期间被替换
     """
+    # 本次核验限定在读到的发码代次
     identity = _identity(settings, namespace, channel, recipient, purpose)
     key = f'{settings.REDIS_KEY_PREFIX}:auth-code:{identity}:challenge'
     generation = await cast(Awaitable[str | None], redis.hget(key, 'generation'))

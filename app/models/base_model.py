@@ -13,7 +13,7 @@ from config.settings import PROJECT_ROOT
 
 
 def load_sql(filename: str) -> str:
-    """读取项目的 PostgreSQL SQL 源"""
+    """以 UTF-8 读取项目的 PostgreSQL SQL 源，文件名必须来自可信来源"""
     return (PROJECT_ROOT / 'database' / 'postgresql' / filename).read_text(encoding='utf-8')
 
 
@@ -33,14 +33,16 @@ class Base(AsyncAttrs, MappedAsDataclass, DeclarativeBase):  # pyright: ignore[r
 
     @classmethod
     def get_ext_alembic_ddls(cls) -> list[DDL]:
+        """返回模型的附加数据库对象，默认无附加对象"""
         return []
 
     @classmethod
     def _columns(cls) -> list[object]:
+        """按表列顺序返回对应的映射属性"""
         return [getattr(cls, column.name) for column in cls.__table__.columns]
 
     def to_dict(self) -> dict[str, object]:
-        """返回全部持久化列，不能用作公开账号响应"""
+        """返回全部持久化列的当前值；不脱敏，不可直接用作对外响应"""
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
 
@@ -87,6 +89,7 @@ class TableModel(Base):
     @classmethod
     @override
     def get_ext_alembic_ddls(cls) -> list[DDL]:
+        """返回维护本表更新时间所需的附加数据库对象"""
         down_sql = f'DROP TRIGGER IF EXISTS tgr_update_updated_at_column ON {cls.__tablename__};'
         return [
             DDL(
@@ -102,6 +105,7 @@ class TableModel(Base):
         return sa.or_(cls.deleted_at.is_(None), cls.deleted_at > sa.func.now())
 
     def is_archived(self) -> bool:
+        """判断记录的归档时间是否已到，未设置归档时间时返回 False"""
         return self.deleted_at is not None and self.deleted_at <= datetime.datetime.now(datetime.UTC)
 
     def delete(self) -> None:

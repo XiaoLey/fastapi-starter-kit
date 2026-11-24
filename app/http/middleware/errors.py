@@ -28,6 +28,7 @@ class ExceptionBoundary:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # 生命周期等非请求 scope 不进入 HTTP 或 WebSocket 错误处理
         if scope['type'] not in ('http', 'websocket'):
             await self.app(scope, receive, send)
             return
@@ -37,8 +38,11 @@ class ExceptionBoundary:
 
         async def tracked_receive() -> Message:
             message = await receive()
+
+            # 一旦对端断开，不再尝试补发错误响应
             if message['type'] in ('websocket.disconnect', 'http.disconnect'):
                 state.disconnected = True
+
             return message
 
         async def tracked_send(message: Message) -> None:
@@ -97,15 +101,18 @@ class ExceptionBoundary:
                 if state.denial_started:
                     await tracked_send({'type': 'websocket.http.response.body', 'body': b'', 'more_body': False})
                 elif state.accepted:
-                    # 已建立连接通过关闭帧报告失败
+                    # 仅服务暂不可用时提示客户端稍后重试
                     code = 1011 if error.status_code >= 500 else 1008
                     if error.status_code == 503:
                         code = 1013
+
+                    # 已建立连接通过关闭帧报告失败
                     await tracked_send({'type': 'websocket.close', 'code': code, 'reason': error.code})
                 elif 'websocket.http.response' in scope.get('extensions', {}):
                     # 支持拒绝扩展时保留标准HTTP错误状态
                     await error_response(error)(scope, receive, tracked_send)
                 else:
+                    # 没有 HTTP 拒绝扩展时以标准关闭消息拒绝握手
                     await tracked_send({'type': 'websocket.close', 'code': 1008, 'reason': error.code})
             except (OSError, WebSocketDisconnect):
                 return

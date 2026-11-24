@@ -18,6 +18,7 @@ from tests.conftest import migrate
 
 
 def test_followup_migration_orders_model_ddl_after_table_creation() -> None:
+    """后续迁移按表依赖编排附属 DDL，回退不额外清理 enum"""
     # 使用真实 Alembic 操作，复现插件在表比较之前生成附属 DDL 的顺序
     timestamp = datetime.now(UTC)
     shared_ddl = Base.get_init_sql_alembic_ddls()[0]
@@ -39,18 +40,21 @@ def test_followup_migration_orders_model_ddl_after_table_creation() -> None:
 
 @pytest.mark.integration
 async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, tmp_path: Path) -> None:
+    """空库迁移建立身份约束，完整回退后可无差异重建"""
     engine = create_async_engine(database_url, poolclass=sa.pool.NullPool, hide_parameters=True)
     extension_query = sa.text('SELECT extname FROM pg_extension')
     try:
-        # 初始化不为尚未使用的业务能力安装额外扩展
+        # 保留迁移前已安装的扩展，作为空库基线
         async with engine.connect() as connection:
             existing_extensions = set((await connection.scalars(extension_query)).all())
+
+        # 初始 schema 必须与模型一致，且不引入额外扩展
         await migrate(database_url, cwd=tmp_path)
         await migrate(database_url, 'check')
         async with engine.connect() as connection:
             assert set((await connection.scalars(extension_query)).all()) == existing_extensions
 
-        # 用户主体没有认证列，默认值和更新时间由真实数据库保证
+        # 用户主体表不承载内置认证字段
         async with engine.begin() as connection:
             columns = set(
                 (
@@ -73,13 +77,15 @@ async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, 
                 )
             )
             before = await connection.scalar(sa.text('SELECT updated_at FROM users WHERE id=:id'), {'id': first})
+
+        # 跨事务更新用户时，审计时间必须推进
         async with engine.begin() as connection:
             after = await connection.scalar(
                 sa.text("UPDATE users SET nickname='更新资料' WHERE id=:id RETURNING updated_at"), {'id': first}
             )
             assert after > before
 
-            # 核心不限制每域一身份，域内归属唯一且不同域可重用subject
+            # 同一主体在同域可有多个身份，不同域可复用 subject
             await connection.execute(
                 sa.text(
                     'INSERT INTO auth_identities(user_id,namespace,subject) VALUES '
@@ -87,6 +93,8 @@ async def test_fresh_schema_identity_constraints_and_rebuild(database_url: URL, 
                 ),
                 {'first': first, 'second': second},
             )
+
+            # 保留待删除主体的密码凭据，供后续核对级联
             await connection.execute(
                 sa.text("INSERT INTO password_credentials(user_id,password_hash) VALUES (:id,'test-credential')"),
                 {'id': first},

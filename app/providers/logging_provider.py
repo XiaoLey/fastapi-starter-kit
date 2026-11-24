@@ -16,6 +16,7 @@ class InterceptHandler(logging.Handler):
 
     @override
     def emit(self, record: logging.LogRecord) -> None:
+        # 异常记录只输出安全诊断，不透传原日志消息
         if record.exc_info and record.exc_info[1] is not None:
             log_failure(record.exc_info[1])
             return
@@ -25,6 +26,7 @@ class InterceptHandler(logging.Handler):
         while frame is not None and (depth == 0 or frame.f_code.co_filename in (logging.__file__, __file__)):
             frame = frame.f_back
             depth += 1
+
         logger.opt(depth=depth).log(record.levelno, record.getMessage())
 
 
@@ -50,14 +52,17 @@ def initialize(settings: Settings) -> None:
             raise RuntimeError('Conflicting process logging configuration')
         return
 
-    # stdout是默认输出，文件只有显式指定后才创建
+    # 标准输出始终启用
     logger.remove()
     logger.add(_stdout_sink, level=settings.LOG_LEVEL, diagnose=False, backtrace=False)
+
+    # 仅在显式配置路径时写文件，相对路径以项目根目录为基准
     if settings.LOG_PATH:
         hostname = socket.gethostname() if settings.LOG_FILE_WITH_HOSTNAME_PREFIX else ''
         path = Path(settings.LOG_PATH.replace('[hostname]', hostname))
         if not path.is_absolute():
             path = PROJECT_ROOT / path
+
         logger.add(
             path,
             level=settings.LOG_LEVEL,
@@ -70,7 +75,11 @@ def initialize(settings: Settings) -> None:
     # 请求 URL 可能携带秘密，不启用第三方客户端的低级请求日志
     for name in ('httpx', 'httpcore'):
         logging.getLogger(name).setLevel(logging.WARNING)
+
+    # 为标准库日志配置统一的异常脱敏处理
     logging.basicConfig(handlers=[InterceptHandler()], level=settings.LOG_LEVEL)
+
+    # 各项配置均未报错才记录为已初始化
     _configuration = configuration
 
 

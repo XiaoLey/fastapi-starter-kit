@@ -29,10 +29,12 @@ class Resources:
 
 
 async def _close_stack(stack: AsyncExitStack) -> None:
+    """等待资源收尾；收尾失败时，即使收到外层取消也传播收尾异常"""
     # 二次取消不遗失清理任务；正常资源须支持协作取消
     task = asyncio.create_task(stack.aclose())
     deadline = asyncio.get_running_loop().time() + 10
     cancelled = False
+
     while not task.done():
         # 期限耗尽时停止清理任务，避免退出无限等待
         remaining = deadline - asyncio.get_running_loop().time()
@@ -61,11 +63,14 @@ async def _close_stack(stack: AsyncExitStack) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """为当前应用提供独立资源，正常退出、取消或启动失败均执行收尾"""
-    # 本次启动独立持有资源与失败状态
+    # 读取装配时确定的配置与认证模块
     settings = cast(Settings, app.state.settings)
     modules = cast(tuple[AuthModule, ...], app.state.auth_modules)
+
+    # 本次启动独立持有资源与失败状态
     stack = AsyncExitStack()
     primary: BaseException | None = None
+
     try:
         # 日志属于进程，不由单个应用退出时关闭
         logging_provider.initialize(settings)
@@ -77,8 +82,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         # Redis 配额与业务客户端共享池，但分别登记关闭
         pool = database_provider.create_redis_pool(settings)
         stack.push_async_callback(pool.aclose)
+
         redis_client = redis.Redis(connection_pool=pool)
         stack.push_async_callback(redis_client.aclose)
+
         limiter = rate_limiter_provider.create_limiter(pool, settings.REDIS_KEY_PREFIX)
         stack.push_async_callback(limiter.client.aclose)
 
@@ -100,14 +107,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         yield
     except BaseException as exc:
-        # 框架会将生命周期异常序列化到日志，未知输入必须在此截断
+        # 记录主流程失败，供收尾时判断异常优先级
         primary = exc
+
+        # 框架会将生命周期异常序列化到日志，未知输入必须在此截断
         if isinstance(exc, asyncio.CancelledError):
             raise asyncio.CancelledError from None
 
         # 安全说明不代表原异常链也可公开
         if isinstance(exc, SafeValueError):
             raise SafeValueError(str(exc)) from None
+
+        # 解释器退出等控制流异常不转成应用错误
         if not isinstance(exc, Exception):
             raise
 
@@ -115,7 +126,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         logging_provider.log_failure(exc)
         raise RuntimeError('Application lifecycle failed') from None
     finally:
-        # 收尾失败不得掩盖原始失败，资源引用始终清除
+        # 普通收尾异常不得掩盖主流程失败
         try:
             await _close_stack(stack)
         except Exception as exc:
@@ -123,4 +134,5 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             if primary is None:
                 raise RuntimeError('Resource cleanup failed') from None
         finally:
+            # 即使收尾失败也不保留资源引用
             app.state.resources = None

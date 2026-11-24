@@ -7,6 +7,7 @@ from config.settings import Settings
 def builtin_factories() -> dict[str, AuthFactory]:
     """返回可选模板；只有选中模块才构造其路由"""
 
+    # 生成工厂清单时不加载可选认证的实现
     def password(settings: Settings) -> AuthModule:
         from app.http.auth_methods.password import build_module
 

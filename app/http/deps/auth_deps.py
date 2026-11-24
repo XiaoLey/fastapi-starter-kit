@@ -29,9 +29,13 @@ bearer = HTTPBearerWithWebSocket(scheme_name='Bearer', auto_error=False)
 async def require_token(
     connection: HTTPConnection, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
 ) -> str:
+    """取得必需的 Bearer token，不验证其有效性"""
+    # 即使缺少凭据，也必须启用本地 token 认证
     get_jwt_settings(connection)
+
     if credentials is None:
         raise AuthenticationError()
+
     return credentials.credentials
 
 
@@ -57,7 +61,9 @@ async def get_auth_user_dirty(
     connection: HTTPConnection, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
 ) -> UserModel | None:
     """缺失或无效凭据返回None，基础设施失败仍向调用方传播"""
+    # 匿名回退也要求应用已启用本地 token 认证
     get_jwt_settings(connection)
+
     if credentials is None:
         return None
 

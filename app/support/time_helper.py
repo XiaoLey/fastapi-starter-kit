@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 
 def _aware(dt: datetime, source_timezone_str: str | None, fold: Literal[0, 1] | None) -> datetime:
+    """将无偏移的时间解释为源时区的有效本地时刻，已有偏移的时间原样返回"""
     if dt.utcoffset() is not None:
         return dt
     if source_timezone_str is None:

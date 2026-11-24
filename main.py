@@ -5,8 +5,10 @@ from config.settings import load_settings
 
 
 def main() -> None:
-    # 在服务器启动前完成进程配置和日志初始化
+    """按项目配置启动 Web 服务，不启用原始访问日志"""
     settings = load_settings()
+
+    # 在服务器启动前应用进程日志配置
     initialize(settings)
 
     # 显式覆盖服务器默认信任，不能由外部FORWARDED_ALLOW_IPS意外扩权

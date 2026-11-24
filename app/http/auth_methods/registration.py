@@ -70,7 +70,9 @@ class RegistrationSc(BaseSc):
 
 def build_router(modules: Sequence[AuthModule]) -> APIRouter:
     """只装配当前内置组合支持的注册及所有权证明入口"""
+    # 注册能力以实际装配的内置模块为准
     options = local_auth_service.local_options(modules)
+
     router = APIRouter(prefix='/auth', tags=['本地账号注册'])
 
     @router.post(

@@ -20,6 +20,7 @@ def install_ddl_compatibility() -> None:
         raise RuntimeError('Recheck DDDL compatibility before changing its version')
 
     def identity(script: Script) -> str:
+        """返回脚本的差异标识，不展开脚本正文"""
         if isinstance(script, DDL):
             return f'{script.name}:{hashlib.sha256(script.sql.encode()).hexdigest()}'
         if isinstance(script, RevisionedScript):
@@ -27,21 +28,32 @@ def install_ddl_compatibility() -> None:
         return hashlib.sha256(script.encode()).hexdigest()
 
     def diff(self: SyncDDLOp) -> tuple[str, str, str]:
+        """提供 Alembic 可报告的正向与反向 DDL 差异标识"""
         return 'sync_ddl', identity(self.up_script), identity(self.down_script)
 
+    # 仅在插件未实现差异接口时补齐
     if SyncDDLOp.to_diff_tuple is MigrateOperation.to_diff_tuple:
         SyncDDLOp.to_diff_tuple = diff
 
 
 def collect_ddls() -> tuple[list[DDL], set[str]]:
-    # 附属 DDL 与实际映射使用同一份登记，表和视图都只收集一次
+    """返回去重后的项目 DDL 和不参与表比较的视图名
+
+    Raises:
+        ValueError: 同名 DDL 的定义不一致
+    """
+    # 先收集不依赖模型的初始化 DDL
     entities = Base.get_init_sql_alembic_ddls()
+
+    # 附属 DDL 与实际映射使用同一份登记，表和视图都只收集一次
     view_names: set[str] = set()
     for mapper in sorted(Base.registry.mappers, key=lambda item: (item.class_.__module__, item.class_.__qualname__)):
         model = mapper.class_
         if not issubclass(model, (TableModel, ViewModel)):
             continue
+
         entities.extend(model.get_ext_alembic_ddls())
+
         if issubclass(model, ViewModel):
             view_names.add(str(model.__tablename__))
 
@@ -57,7 +69,7 @@ def collect_ddls() -> tuple[list[DDL], set[str]]:
 
 
 def register_project_ddls(entities: list[DDL]) -> None:
-    # 迁移环境重复执行时替换本项目登记，不积累进程全局残留
+    """用项目 DDL 替换进程的全局迁移登记，重复调用不累积条目"""
     ddl_registry.ddls[:] = entities
 
 
@@ -69,6 +81,7 @@ def prepare_schema_migration(
     initial_names = {entity.name for entity in Base.get_init_sql_alembic_ddls()}
 
     def belongs_to_model(script: Script) -> bool:
+        """识别归属于模型的附属 DDL"""
         return isinstance(script, (DDL, RevisionedScript)) and script.name not in initial_names
 
     for directive in directives:

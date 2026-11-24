@@ -9,14 +9,20 @@ from app.http.deps.runtime_deps import get_resources, get_settings
 
 
 async def verify_ip_banned(connection: HTTPConnection) -> None:
+    """拒绝来源已被封禁的连接"""
     ip = get_request_ip(connection)
     resources, settings = get_resources(connection), get_settings(connection)
+
+    # 只检查配置命名空间内的封禁记录
     if await cast(Awaitable[str | None], resources.redis_client.hget(f'{settings.REDIS_KEY_PREFIX}:ip:black_list', ip)):
         raise ApiError(403, 'IP_BANNED_ERROR', '连接来源已被禁止')
 
 
 async def verify_app_limit(connection: HTTPConnection) -> None:
+    """按连接来源检查应用访问配额"""
     settings = get_settings(connection)
+
+    # HTTP 请求与 WebSocket 握手的配额独立计数
     scope = 'http' if connection.scope['type'] == 'http' else 'ws:handshake'
     await get_resources(connection).limiter.hit(settings.APP_QPS, 1, scope, get_request_ip(connection))
 

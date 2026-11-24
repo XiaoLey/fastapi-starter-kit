@@ -13,14 +13,20 @@ _DEVICES = {'CON', 'PRN', 'AUX', 'NUL'} | {f'{prefix}{n}' for prefix in ('COM', 
 
 
 def check_file_name_safty(file_name: str, base_dir: str) -> str:
-    """返回基目录范围内解析后的绝对路径；不解码URL，也不保证后续打开免于TOCTOU"""
-    # 先限制路径文本的形态，再检查跨平台路径边界
+    """返回解析后位于基目录内的绝对路径
+
+    不执行 URL 解码，也不保证校验后再打开文件时仍位于基目录内。
+
+    Raises:
+        InvalidFileNameError: 相对路径不合规、无法解析或解析后超出基目录
+    """
+    # 限制相对路径文本的字符和长度
     try:
         _LOCAL.validate_python(file_name)
     except ValidationError:
         raise InvalidFileNameError() from None
 
-    # 同时拒绝POSIX和Windows绝对/驱动器/设备路径，不受当前平台影响
+    # 跨平台拒绝绝对路径、驱动器前缀和保留设备名
     normalized = file_name.replace('\\', '/')
     parts = normalized.split('/')
     if PureWindowsPath(file_name).drive or normalized.startswith('/') or len(parts) > 10:
@@ -30,7 +36,7 @@ def check_file_name_safty(file_name: str, base_dir: str) -> str:
     ):
         raise InvalidFileNameError()
 
-    # resolve会跟随符号链接，包含深度检查在内的边界错误统一转换
+    # 解析符号链接后仍须位于基目录内
     try:
         base = Path(base_dir).resolve()
         path = (base / Path(*parts)).resolve()
@@ -42,7 +48,14 @@ def check_file_name_safty(file_name: str, base_dir: str) -> str:
 
 
 def check_oss_file_name_safety(file_name: str, base_dir: str | None = None) -> str:
-    """校验对象存储相对key；base_dir仅作key前缀，不表示本地目录"""
+    """校验相对对象键并返回带可选前缀的键，不解析本地路径
+
+    Args:
+        base_dir: 可信的键前缀，不参与相对键校验
+
+    Raises:
+        InvalidFileNameError: 相对对象键不合规
+    """
     # 规范化对象 key 文本，不按本地文件系统解析
     normalized = file_name.strip().replace('\\', '/')
     try:
@@ -50,7 +63,7 @@ def check_oss_file_name_safety(file_name: str, base_dir: str | None = None) -> s
     except ValidationError:
         raise InvalidFileNameError() from None
 
-    # 拒绝空段和目录跳转，前缀只参与最终 key 拼接
+    # 拒绝空段和目录跳转
     parts = normalized.split('/')
     if len(parts) > 10 or any(part in ('', '.', '..') for part in parts):
         raise InvalidFileNameError()

@@ -23,7 +23,8 @@ type AuthFactory = Callable[[Settings], AuthModule]
 
 
 def resolve_modules(settings: Settings, factories: Mapping[str, AuthFactory]) -> tuple[AuthModule, ...]:
-    """只构造选中模块，拒绝无效注册名、未知或重复选择"""
+    """按配置顺序装配选中的模块，拒绝无效注册名、未知或重复选择"""
+    # 未启用的注册项也必须满足模块 ID 约束
     if any(not name or name.strip() != name for name in factories):
         raise ValueError('Auth module IDs must be nonblank and have no surrounding whitespace')
 
@@ -32,4 +33,5 @@ def resolve_modules(settings: Settings, factories: Mapping[str, AuthFactory]) ->
     if len(selected) != len(set(selected)) or any(name not in factories for name in selected):
         raise ValueError('AUTH_MODULES contains duplicate or unknown module IDs')
 
+    # 注册表和启用清单均通过校验后才调用工厂
     return tuple(factories[name](settings) for name in selected)

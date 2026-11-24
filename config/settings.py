@@ -79,13 +79,16 @@ class Settings(BaseSettings):
     @field_validator('APP_API_PREFIX')
     @classmethod
     def validate_api_prefix(cls, value: str) -> str:
+        """仅接受以斜杠开头、不以斜杠结尾的 API 前缀"""
         if not value.startswith('/') or value.endswith('/'):
             raise SafeValueError('API prefix must start with / and have no trailing slash')
+
         return value
 
     @field_validator('APP_TRUSTED_PROXY_IPS')
     @classmethod
     def validate_proxies(cls, value: str) -> str:
+        """规范化逗号分隔的可信代理 IP 地址或网段，空字符串表示不信任代理"""
         if not value.strip():
             return ''
 
@@ -95,11 +98,13 @@ class Settings(BaseSettings):
     @field_validator('JWT_SECRET_KEY', 'AUTH_CODE_SECRET_KEY', mode='before')
     @classmethod
     def empty_secret(cls, value: object) -> object:
+        """将空字符串视为未配置的密钥，其他输入原样保留"""
         return None if value == '' else value
 
     @field_validator('JWT_SECRET_KEY', 'AUTH_CODE_SECRET_KEY')
     @classmethod
     def validate_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        """允许省略密钥；已配置的密钥须为非占位值且满足 UTF-8 字节长度要求"""
         if value is None:
             return None
 
@@ -112,6 +117,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode='after')
     def validate_boundaries(self) -> Self:
+        """校验 CORS 凭据策略及生产环境的安全约束，通过时返回当前配置"""
         # 浏览器凭据与宽泛来源不能同时启用
         if self.APP_CORS_ALLOW_CREDENTIALS and '*' in self.APP_CORS_ORIGINS:
             raise SafeValueError('Credentialed CORS requires explicit origins')
@@ -139,6 +145,7 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> URL:
+        """返回包含连接凭据的 PostgreSQL URL"""
         return URL.create(
             'postgresql+asyncpg',
             username=self.POSTGRES_USER,
@@ -150,7 +157,11 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
-    """读取配置，错误保留安全约束说明，不输出秘密输入"""
+    """读取应用配置
+
+    Raises:
+        SafeValueError: 配置未通过模型校验；说明只包含可公开的详情，不包含原始输入
+    """
     try:
         return Settings.model_validate({})
     except ValidationError as exc:

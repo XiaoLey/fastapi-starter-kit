@@ -34,6 +34,7 @@ class PasswordLoginSc(BaseSc):
         kind = info.data.get('kind')
         if kind not in _IDENTIFIERS:
             raise SafeValueError('A valid identity kind is required')
+
         return _IDENTIFIERS[kind].validate_python(value)
 
 
@@ -69,6 +70,8 @@ def build_module(settings: Settings) -> AuthModule:
         valid, replacement = await verify_password(
             data.password.get_secret_value(), credential.password_hash if credential is not None else None
         )
+
+        # 凭据异常或账号不可用时统一拒绝认证
         if user is None or credential is None or not valid or not user.is_enabled():
             raise AuthenticationError()
 

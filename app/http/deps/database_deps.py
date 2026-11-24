@@ -12,7 +12,7 @@ from app.http.deps.runtime_deps import get_resources
 async def get_db(
     connection: HTTPConnection, time_zone: Annotated[str, Depends(get_timezone)]
 ) -> AsyncIterator[AsyncSession]:
-    """创建请求会话；业务负责提交，未完成事务在退出时回滚"""
+    """为 HTTP 请求提供数据库会话；业务负责提交，未提交事务在退出时回滚"""
     if connection.scope['type'] != 'http':
         raise RuntimeError('WebSocket operations require short-lived sessions')
 

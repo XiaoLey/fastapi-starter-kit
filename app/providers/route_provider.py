@@ -19,6 +19,8 @@ def boot(app: FastAPI, settings: Settings, modules: Sequence[AuthModule]) -> Non
         dependencies=[Depends(verify_ip_banned), Depends(verify_app_limit)],
         responses={status: {'model': ErrorSc} for status in (401, 403, 409, 422, 429, 500, 503)},
     )
+
+    # 将业务路由和所选认证路由纳入同一入口
     business.include_router(api.router)
     for module in modules:
         business.include_router(module.router)
@@ -28,6 +30,8 @@ def boot(app: FastAPI, settings: Settings, modules: Sequence[AuthModule]) -> Non
         from app.http.auth_methods.registration import build_router as build_registration_router
 
         business.include_router(build_registration_router(modules))
+
+    # 本地 token 共用入口与内置注册独立启用
     if any(module.uses_local_tokens for module in modules):
         from app.http.auth_core import build_router
 

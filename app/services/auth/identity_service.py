@@ -19,8 +19,8 @@ class PreparedIdentity(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    namespace: str = Field(min_length=1, max_length=128)
-    subject: str = Field(min_length=1, max_length=512)
+    namespace: str = Field(min_length=1, max_length=128)  #: 可信身份域，不同签发方或租户使用不同域
+    subject: str = Field(min_length=1, max_length=512)  #: 所属域内已规范化的稳定标识
     verified_at: datetime | None = Field(default=None)
 
 
@@ -55,6 +55,8 @@ async def create_account(
     # 保存点覆盖整个建号单元，唯一竞争不能留下孤儿用户
     async with session.begin_nested():
         user = await create_user(session, profile if profile is not None else UserProfileSc())
+
+        # 全部初始身份归属同一个新用户
         session.add_all([
             AuthIdentityModel(
                 user_id=user.id, namespace=item.namespace, subject=item.subject, verified_at=item.verified_at
@@ -78,6 +80,7 @@ async def create_account(
                 ):
                     raise UserAlreadyExistsError() from None
                 original = original.__cause__
+
             raise
 
         # 模块凭据与用户、身份共同成功或回滚
@@ -92,7 +95,11 @@ async def create_account(
 
 
 async def resolve_verified_user(session: AsyncSession, identity: PreparedIdentity) -> UserModel:
-    """复用已验证身份或首次建号，不自动关联其他域的身份"""
+    """复用已验证身份或首次建号，不自动关联其他域的身份
+
+    Raises:
+        AuthenticationError: 归属账号已停用或软删除
+    """
     # 复用现有归属，首次建号的并发竞争只回读相同身份
     user = await find_user(session, namespace=identity.namespace, subject=identity.subject)
     if user is None:
@@ -103,6 +110,7 @@ async def resolve_verified_user(session: AsyncSession, identity: PreparedIdentit
             if user is None:
                 raise RuntimeError('Concurrent identity creation could not be resolved') from None
 
+    # 身份证明不替代账号状态校验
     if not user.is_enabled():
         raise AuthenticationError()
 

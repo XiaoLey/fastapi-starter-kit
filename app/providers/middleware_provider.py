@@ -6,6 +6,7 @@ from config.settings import Settings
 
 
 def register(app: FastAPI, settings: Settings) -> None:
+    """安装错误边界，为可控的 HTTP 错误响应应用跨域策略"""
     app.add_middleware(ExceptionBoundary)
 
     # 最后添加的用户中间件在外层，为可控错误响应附加 CORS 头

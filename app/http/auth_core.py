@@ -13,7 +13,7 @@ from app.services.auth.token_service import cancel_token, validate_token
 
 
 def build_router() -> APIRouter:
-    """共用本地token与当前用户路由，不属于自动发现的业务API"""
+    """返回本地 token 操作与当前用户的共用路由"""
     router = APIRouter(tags=['认证与用户'])
 
     @router.delete('/auth/token', response_model=BoolSc)
@@ -27,7 +27,9 @@ def build_router() -> APIRouter:
         token: Annotated[str, Depends(auth_deps.require_token)],
         user: Annotated[UserModel, Depends(auth_deps.get_auth_user)],
     ) -> TokenStatusSc:
+        # 状态只展示通过校验的 token 声明
         payload = await validate_token(token, get_resources(request).redis_client, get_jwt_settings(request))
+
         return TokenStatusSc(
             user_id=payload.sub,
             expires_at=datetime.fromtimestamp(payload.exp, UTC),

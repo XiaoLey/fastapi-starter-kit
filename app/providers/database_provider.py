@@ -16,6 +16,11 @@ class _Session(Session):
 
 @event.listens_for(_Session, 'after_begin')
 def _set_transaction_time_zone(session: _Session, transaction: SessionTransaction, connection: Connection) -> None:
+    """为当前事务应用会话时区，未指定时使用默认时区
+
+    Raises:
+        TypeError: 会话时区不是字符串
+    """
     zone = session.info.get('time_zone', 'Asia/Shanghai')
     if not isinstance(zone, str):
         raise TypeError('Session time zone must be a string')
@@ -25,6 +30,7 @@ def _set_transaction_time_zone(session: _Session, transaction: SessionTransactio
 
 
 def create_engine(settings: Settings) -> AsyncEngine:
+    """创建异步数据库引擎，关闭 SQLAlchemy 的绑定参数值展示"""
     return create_async_engine(
         settings.database_url,
         pool_pre_ping=True,
@@ -38,10 +44,12 @@ def create_engine(settings: Settings) -> AsyncEngine:
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """创建异步会话工厂；提交事务不会使已加载的对象属性过期"""
     return async_sessionmaker(engine, class_=AsyncSession, sync_session_class=_Session, expire_on_commit=False)
 
 
 def create_redis_pool(settings: Settings) -> redis.ConnectionPool:
+    """创建由调用方关闭的 Redis 连接池，解码 Redis 返回的字节串"""
     return redis.ConnectionPool(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
@@ -56,6 +64,7 @@ def create_redis_pool(settings: Settings) -> redis.ConnectionPool:
 
 
 def is_dependency_failure(exc: Exception) -> bool:
+    """判断异常是否应按依赖暂不可用处理，不把所有数据库错误都视为断连"""
     return isinstance(
         exc, (RedisConnectionError, RedisTimeoutError, ConnectionError, TimeoutError, OperationalError)
     ) or (isinstance(exc, DBAPIError) and exc.connection_invalidated)

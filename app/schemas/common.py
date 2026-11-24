@@ -18,9 +18,17 @@ class ValidationDetailSc(BaseSc):
 
     @classmethod
     def from_error(cls, error: Mapping[str, object]) -> Self:
-        """仅保留字段位置、错误类型和显式安全的校验说明"""
+        """将单条 Pydantic 校验错误转换为可公开详情
+
+        Args:
+            error: 包含 loc 和 type 的校验错误条目
+
+        Returns:
+            字段位置、错误类型及显式标记为安全的文案；无安全说明时文案为 None
+        """
         context = error.get('ctx')
         cause = cast(Mapping[str, object], context).get('error') if isinstance(context, Mapping) else None
+
         return cls.model_validate({
             'loc': error['loc'],
             'type': error['type'],

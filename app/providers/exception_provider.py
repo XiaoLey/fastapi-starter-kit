@@ -13,11 +13,14 @@ from app.schemas.common import ErrorSc, ValidationDetailSc
 
 
 def error_response(error: ApiError, *, detail: list[ValidationDetailSc] | None = None) -> JSONResponse:
+    """序列化已具备安全文案的业务错误，保留状态码和响应头"""
     body = ErrorSc(code=error.code, message=error.message, detail=detail)
     return JSONResponse(body.model_dump(exclude_none=True), status_code=error.status_code, headers=error.headers)
 
 
 def register(app: FastAPI) -> None:
+    """注册 HTTP 错误处理；WebSocket 错误交由外层按连接状态处理"""
+
     @app.exception_handler(HTTPException)
     async def handle_http(connection: HTTPConnection, exc: HTTPException) -> Response:
         if connection.scope['type'] == 'websocket':
@@ -42,6 +45,7 @@ def register(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_request_validation(connection: HTTPConnection, exc: RequestValidationError) -> Response:
+        # 只公开允许的校验详情，不回显原始输入及错误上下文
         details = [ValidationDetailSc.from_error(error) for error in exc.errors()]
         return error_response(ApiError(422, 'VALIDATION_ERROR', '输入校验失败'), detail=details)
 

@@ -14,6 +14,7 @@ class ApiError(HTTPException):
     message: str
 
     def __init__(self, status_code: int, code: str, message: str, *, headers: dict[str, str] | None = None) -> None:
+        """构建带业务错误码的 HTTP 错误；调用方提供的文案必须可公开"""
         self.code = code
         self.message = message
         super().__init__(status_code, detail={'code': code, 'message': message}, headers=headers)
@@ -65,6 +66,7 @@ class TooManyRequestsError(ApiError):
     """固定窗口或发送冷却已限制本次请求"""
 
     def __init__(self, retry_after: int) -> None:
+        """以秒为单位给出 Retry-After，小于一秒按一秒处理"""
         super().__init__(429, 'TOO_MANY_REQUESTS', '请求过于频繁', headers={'Retry-After': str(max(1, retry_after))})
 
 

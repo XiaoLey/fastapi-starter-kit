@@ -1,4 +1,4 @@
-"""核心流程测试的共享准备；只清理本次创建的数据库和Redis前缀"""
+"""共享测试准备，仅清理本次创建的数据库和 Redis 前缀"""
 
 import asyncio
 import json
@@ -73,14 +73,17 @@ class EmailRecorder:
 
 
 def make_settings(**overrides: object) -> Settings:
+    """构造可显式覆盖的测试应用配置"""
     return Settings.model_validate({'_env_file': None, 'APP_ENV': 'test', 'REDIS_KEY_PREFIX': 'test-unit', **overrides})
 
 
 @pytest.fixture
 def log_messages() -> Iterator[list[str]]:
+    """收集当前用例的应用日志，用例结束后停止收集"""
     initialize(make_settings())
     messages: list[str] = []
     sink = logger.add(messages.append, format='{message}', diagnose=False, backtrace=False)
+
     try:
         yield messages
     finally:
@@ -88,8 +91,8 @@ def log_messages() -> Iterator[list[str]]:
 
 
 def settings_environment(settings: Settings) -> dict[str, str]:
-    """为CLI子进程显式覆盖全部应用字段，避免继承真实dotenv配置"""
-    # 将全部字段显式交给子进程；秘密不经过命令行参数
+    """为 CLI 子进程显式覆盖全部应用字段，避免继承真实 dotenv 配置"""
+    # 敏感值经环境变量传递，不进入命令行参数
     environment = dict(os.environ)
     for name, value in settings.model_dump().items():
         if isinstance(value, SecretStr):
@@ -98,6 +101,7 @@ def settings_environment(settings: Settings) -> dict[str, str]:
             environment[name] = json.dumps(value)
         else:
             environment[name] = '' if value is None else str(value)
+
     return environment
 
 
@@ -109,6 +113,7 @@ async def migrate(
     cwd: Path = PROJECT_ROOT,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    """执行指定测试库的迁移操作，返回进程结果；默认在失败时中止测试"""
     # 构造隔离配置，不继承真实连接信息
     settings = make_settings(
         POSTGRES_HOST=url.host,
@@ -118,10 +123,11 @@ async def migrate(
         POSTGRES_PASSWORD=url.password or '',
     )
 
-    # 真实CLI隔离当前进程的日志与事件循环，不使用生产测试开关
     args = [sys.executable, '-X', 'utf8', '-m', 'alembic', '-c', str(PROJECT_ROOT / 'alembic.ini'), action]
     if action != 'check':
         args.append(target)
+
+    # 迁移进程与测试进程的日志和事件循环相互隔离
     result = await asyncio.to_thread(
         subprocess.run,
         args,
@@ -135,22 +141,25 @@ async def migrate(
     )
     if check and result.returncode:
         pytest.fail(f'Alembic {action} failed:\n{result.stdout}\n{result.stderr}')
+
     return result
 
 
 @pytest.fixture(autouse=True)
 def isolated_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """用例期间隔离应用环境变量，保留显式测试服务配置"""
     for name in Settings.model_fields:
         monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
 async def database_url() -> AsyncIterator[URL]:
+    """提供并回收独占的临时数据库；未显式配置测试连接时跳过用例"""
     raw = os.environ.get('TEST_DATABASE_URL')
     if not raw:
         pytest.skip('Requires explicit TEST_DATABASE_URL')
 
-    # 只接受命名明确的独立测试 control 库
+    # 连接前确认控制库是显式命名的测试库
     control = make_url(raw)
     if (
         control.drivername != 'postgresql+asyncpg'
@@ -160,7 +169,7 @@ async def database_url() -> AsyncIterator[URL]:
     ):
         raise ValueError('Use an explicit postgresql+asyncpg URL naming a fastapi_test_* control database')
 
-    # 不迁移或清空传入control库，只创建随机命名的新库
+    # 不迁移或清空控制库，只创建随机命名的新库
     name = f'fastapi_test_{uuid4().hex}'
     engine = create_async_engine(control, poolclass=pool.NullPool, hide_parameters=True)
     created = False
@@ -169,20 +178,23 @@ async def database_url() -> AsyncIterator[URL]:
             connection = await connection.execution_options(isolation_level='AUTOCOMMIT')
             await connection.exec_driver_sql(f'CREATE DATABASE "{name}" TEMPLATE template0')
             created = True
+
         yield control.set(database=name)
     finally:
-        # 只销毁本次成功创建的随机库，始终释放连接资源
+        # 只销毁本次成功创建的库
         try:
             if created:
                 async with engine.connect() as connection:
                     connection = await connection.execution_options(isolation_level='AUTOCOMMIT')
                     await connection.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
         finally:
+            # 销毁成功与否都要释放连接资源
             await engine.dispose()
 
 
 @pytest.fixture
 async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
+    """提供已迁移测试库与专用 Redis 前缀的配置，缺少 Redis 测试连接时跳过用例"""
     raw = os.environ.get('TEST_REDIS_URL')
     if not raw:
         pytest.skip('Requires explicit TEST_REDIS_URL')
@@ -191,7 +203,7 @@ async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
     if parsed.scheme != 'redis' or parsed.hostname is None or parsed.username not in (None, '', 'default'):
         raise ValueError('Use an explicit redis:// URL with the default user')
 
-    # 每个组合流程使用独立数据库和Redis命名空间
+    # 将独立测试服务的连接和用例专属前缀写入应用配置
     prefix = f'test-{uuid4().hex}'
     settings = make_settings(
         POSTGRES_HOST=database_url.host,
@@ -206,7 +218,10 @@ async def integration_settings(database_url: URL) -> AsyncIterator[Settings]:
         REDIS_KEY_PREFIX=prefix,
         APP_QPS=1000,
     )
+
+    # 在应用配置可用前完成测试库迁移
     await migrate(database_url)
+
     try:
         yield settings
     finally:
@@ -234,10 +249,12 @@ AppFactory = Callable[..., Awaitable[AppClient]]
 
 @pytest.fixture
 async def app_factory(integration_settings: Settings) -> AsyncIterator[AppFactory]:
+    """提供可多次打开应用的工厂，用例结束后关闭全部应用与客户端"""
     async with AsyncExitStack() as stack:
 
         async def open_app(*, factories: Mapping[str, AuthFactory] | None = None, **overrides: object) -> AppClient:
-            # 所有应用共用本用例的真实服务，选择方式与密钥显式传入
+            """返回已启动的应用与客户端，默认共用本用例的数据库与 Redis 前缀"""
+            # 认证能力与密钥来自显式测试配置
             settings = make_settings(**{
                 **integration_settings.model_dump(),
                 'JWT_SECRET_KEY': 'test-jwt-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -245,7 +262,7 @@ async def app_factory(integration_settings: Settings) -> AsyncIterator[AppFactor
                 **overrides,
             })
 
-            # 应用和 HTTP 客户端均纳入本 fixture 的退出栈
+            # 应用生命周期覆盖客户端的整个使用期
             app = create_app(
                 settings,
                 auth_module_factories=factories,

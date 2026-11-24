@@ -12,8 +12,10 @@ ContactKind = Literal['phone', 'email']
 
 
 def _reject_phone_username(value: str) -> str:
+    """拒绝符合内置手机号规则的用户名，通过时原样返回"""
     if re.fullmatch(r'1[3-9][0-9]{9}', value):
         raise SafeValueError('Username must not be a phone number')
+
     return value
 
 
@@ -28,4 +30,5 @@ VerificationCode = Annotated[str, StringConstraints(strict=True, pattern=r'^[0-9
 
 
 def identity_namespace(kind: LocalKind) -> str:
+    """返回与本地身份类型对应的持久化命名空间"""
     return f'local/{kind}'

@@ -76,12 +76,14 @@ def alter_enum_type(
         USING {column_name}::{new_enum_name}
     """)
 
-    # 恢复目标默认值与非空约束
+    # 恢复迁移指定的默认值
     if default_value is not None:
         op.execute(f"""
             ALTER TABLE {table_name}
             ALTER COLUMN {column_name} SET DEFAULT '{default_value}'
         """)
+
+    # 恢复目标列的非空约束
     if not nullable:
         op.execute(f"""
             ALTER TABLE {table_name}
@@ -136,12 +138,14 @@ def alter_column_type(
         USING {column_name}::{new_type}
     """)
 
-    # 恢复目标默认值与非空约束
+    # 恢复迁移指定的默认值
     if default_value is not None:
         op.execute(f"""
             ALTER TABLE {table_name}
             ALTER COLUMN {column_name} SET DEFAULT '{default_value}'
         """)
+
+    # 恢复目标列的非空约束
     if not nullable:
         op.execute(f"""
             ALTER TABLE {table_name}

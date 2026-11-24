@@ -18,11 +18,19 @@ def create_access_token(
     expires_delta: timedelta | None = None,
     additional_claims: dict[str, object] | None = None,
 ) -> str:
-    """签发访问凭据，额外声明不能覆盖保留字段"""
+    """为指定主体签发访问凭据
+
+    Args:
+        expires_delta: 自签发起算的有效期；省略时使用配置值
+        additional_claims: 可 JSON 序列化的额外声明
+
+    Raises:
+        ValueError: 额外声明与保留声明冲突
+    """
     if additional_claims and _RESERVED.intersection(additional_claims):
         raise ValueError('Additional claims cannot replace reserved claims')
 
-    # 所有时间声明共用同一个UTC时刻
+    # 所有时间声明以同一个 UTC 时刻为基准
     now = datetime.now(UTC)
     payload: dict[str, object] = {
         'iss': settings.JWT_ISSUER,
@@ -34,11 +42,17 @@ def create_access_token(
         'jti': str(uuid4()),
         **(additional_claims or {}),
     }
+
     return jwt.encode(payload, settings.JWT_SECRET_KEY.get_secret_value(), algorithm='HS256')
 
 
 def get_payload_by_token(token: str, settings: JwtSettings) -> JWTSc:
-    """验签并校验必需声明，所有凭据错误均属于身份错误"""
+    """返回已验签且通过必需声明校验的访问凭据声明
+
+    Raises:
+        TokenExpiredError: 凭据被判定为过期
+        InvalidTokenError: 凭据未通过其他校验
+    """
     try:
         payload = jwt.decode(
             token,
@@ -48,6 +62,8 @@ def get_payload_by_token(token: str, settings: JwtSettings) -> JWTSc:
             audience=settings.JWT_AUDIENCE,
             options={'require': sorted(_RESERVED)},
         )
+
+        # 验签通过的声明仍须符合应用的数据约束
         return JWTSc.model_validate(payload)
     except jwt.ExpiredSignatureError:
         raise TokenExpiredError() from None

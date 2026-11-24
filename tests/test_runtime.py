@@ -24,6 +24,7 @@ from tests.conftest import SENSITIVE_TEST_VALUE, AppFactory, EmailRecorder, SmsR
 
 
 def test_factory_defaults_to_no_auth_and_validates_module_selection() -> None:
+    """默认装配不启用认证，拒绝无效模块选择和重复路由"""
     # 默认装配不要求认证密钥，也不创建运行资源
     app = create_app(make_settings(APP_API_PREFIX='/v2', APP_DEBUG=True))
     assert app.state.resources is None and app.state.jwt_settings is None
@@ -36,11 +37,14 @@ def test_factory_defaults_to_no_auth_and_validates_module_selection() -> None:
     for selection in (['unknown'], ['password', 'password'], ['']):
         with pytest.raises(ValueError, match='AUTH_MODULES'):
             create_app(make_settings(AUTH_MODULES=selection))
+
+    # 启用本地密码认证仍须提供令牌配置
     with pytest.raises(ValueError, match='local token settings'):
         create_app(make_settings(AUTH_MODULES=['password']))
 
     # 嵌套路由也必须遵守唯一的 method/path 契约
     def duplicate(settings: Settings) -> AuthModule:
+        """返回其子路由存在 method/path 冲突的认证模块"""
         nested = APIRouter(prefix='/nested')
 
         @nested.get('/same')
@@ -60,6 +64,8 @@ def test_factory_defaults_to_no_auth_and_validates_module_selection() -> None:
 
 
 async def test_explicit_business_routes_keep_health_independent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """显式挂载的业务路由支持 HTTP 和 WebSocket，存活探针不依赖运行资源"""
+    # 两种协议的端点共用业务前缀
     router = APIRouter(prefix='/business')
 
     @router.get('/status')
@@ -87,6 +93,7 @@ async def test_explicit_business_routes_keep_health_independent(monkeypatch: pyt
 
 
 async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_messages: list[str]) -> None:
+    """所需发送器按应用和生命周期隔离，退出或启动失败时关闭"""
     # 选择联系方式认证但缺少发送器时，启动必须失败并收尾
     settings = make_settings(
         AUTH_MODULES=['password', 'phone_otp', 'email_otp'],
@@ -97,25 +104,30 @@ async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_mes
     with pytest.raises(SafeValueError, match='sms_sender_factory'):
         async with invalid.router.lifespan_context(invalid):
             pytest.fail('Selected phone module requires a sender')
+
     assert invalid.state.resources is None
 
-    # 三个内置模块在每个应用的每轮启动中共享一次发送器创建
+    # 记录发送器实例，供各轮启动核对数量和归属
     created_sms: list[SmsRecorder] = []
     created_email: list[EmailRecorder] = []
 
     def sms_factory() -> SmsRecorder:
+        """返回新的短信发送器替身并记录该实例"""
         sender = SmsRecorder()
         created_sms.append(sender)
         return sender
 
     def email_factory() -> EmailRecorder:
+        """返回新的邮件发送器替身并记录该实例"""
         sender = EmailRecorder()
         created_email.append(sender)
         return sender
 
-    # 两个应用同时存活，结束一个不能关闭另一个的资源
+    # 两个应用共享配置和工厂，不共享运行资源
     first = create_app(settings, sms_sender_factory=sms_factory, email_sender_factory=email_factory)
     second = create_app(settings, sms_sender_factory=sms_factory, email_sender_factory=email_factory)
+
+    # 首轮启动只创建一套发送器
     async with first.router.lifespan_context(first):
         resource = cast(Resources, first.state.resources)
         local = cast(LocalResources, first.state.local_auth_resources)
@@ -137,6 +149,7 @@ async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_mes
         assert not local.sms_sender.closed and not local.email_sender.closed
         assert other.httpx_client.is_closed and not resource.httpx_client.is_closed
 
+    # 首个应用退出后也不再持有打开的发送器或 HTTP 客户端
     assert local.sms_sender.closed and local.email_sender.closed and resource.httpx_client.is_closed
 
     # 重复 lifespan 必须得到新实例，不能复活已经关闭的发送器
@@ -147,22 +160,30 @@ async def test_lifespan_only_owns_selected_senders_and_closes_each_cycle(log_mes
         assert isinstance(repeated_local.sms_sender, SmsRecorder) and not repeated_local.sms_sender.closed
         assert isinstance(repeated_local.email_sender, EmailRecorder) and not repeated_local.email_sender.closed
         assert len(created_sms) == len(created_email) == 3
+
+    # 新一轮也须关闭发送器并清空应用资源引用
     assert repeated_local.sms_sender.closed and repeated_local.email_sender.closed
     assert first.state.resources is None and first.state.local_auth_resources is None
 
-    # 后创建的发送器失败时，已创建的发送器仍要关闭且原始供应商文本不能外泄
     def failed_email() -> EmailRecorder:
+        """模拟携带敏感诊断的邮件发送器初始化失败"""
         raise RuntimeError(SENSITIVE_TEST_VALUE)
 
+    # 邮件发送器初始化失败时中止应用启动
     broken = create_app(settings, sms_sender_factory=sms_factory, email_sender_factory=failed_email)
     with pytest.raises(SafeValueError, match='Email sender initialization failed') as failure:
         async with broken.router.lifespan_context(broken):
             pytest.fail('Sender initialization must fail')
+
+    # 启动未完成也要释放先前创建的发送器
     assert created_sms[-1].closed and broken.state.resources is None
+
+    # 供应商原始诊断不得出现在异常文本或日志中
     assert SENSITIVE_TEST_VALUE not in str(failure.value) + ''.join(log_messages)
 
 
 def test_configuration_reports_safe_reasons(monkeypatch: pytest.MonkeyPatch) -> None:
+    """配置错误指向可修正的字段，不回显敏感输入"""
     # 配置错误必须来自隔离输入，不能读取真实 dotenv
     monkeypatch.setitem(Settings.model_config, 'env_file', None)
     monkeypatch.setenv('APP_ENV', 'production')
@@ -189,17 +210,21 @@ def test_configuration_reports_safe_reasons(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 async def test_safe_validation_and_http_errors(log_messages: list[str], caplog: pytest.LogCaptureFixture) -> None:
+    """HTTP 错误保留可公开的诊断，不在响应或日志中泄露秘密"""
+
+    # 同一模型在请求和响应两个边界触发校验失败
     class UntrustedInput(BaseSc):
         value: str
 
         @field_validator('value')
         @classmethod
         def reject(cls, value: str) -> str:
+            """拒绝输入并附上不可公开的诊断内容"""
             raise ValueError(f'{SENSITIVE_TEST_VALUE}: {value}')
 
     app = create_app(make_settings(APP_DEBUG=True, APP_CORS_ORIGINS=['https://browser.example']))
 
-    # 直接使用公开路由接口组合错误边界，不替换 Redis 或数据库算法
+    # 通过公开路由覆盖注册与普通输入的校验错误
     @app.post('/_registration')
     async def registration(data: RegistrationSc) -> bool:
         return True
@@ -208,6 +233,7 @@ async def test_safe_validation_and_http_errors(log_messages: list[str], caplog: 
     async def untrusted(data: UntrustedInput) -> bool:
         return True
 
+    # 响应校验失败和端点抛错都属于内部错误
     @app.get('/_internal', response_model=UntrustedInput)
     async def internal() -> dict[str, str]:
         return {'value': SENSITIVE_TEST_VALUE}
@@ -258,27 +284,36 @@ async def test_safe_validation_and_http_errors(log_messages: list[str], caplog: 
 async def test_lifecycle_failures_are_safe_and_close_resources(
     phase: Literal['startup', 'shutdown', 'cancel', 'safe'], log_messages: list[str]
 ) -> None:
+    """生命周期失败或取消时按序释放资源，不泄露诊断原文"""
+    # 保留资源引用与模块退出时的客户端状态
     resources: list[Resources] = []
     module_closed: list[bool] = []
 
     @asynccontextmanager
     async def owner(app: FastAPI) -> AsyncGenerator[None]:
+        """记录模块退出时客户端状态，并在非取消场景模拟清理失败"""
         resource = cast(Resources, app.state.resources)
         resources.append(resource)
+
         try:
             yield
         finally:
             module_closed.append(not resource.httpx_client.is_closed)
+
+            # 取消场景不叠加额外的清理错误
             if phase != 'cancel':
                 raise ValueError(f'{SENSITIVE_TEST_VALUE}-cleanup')
 
     @asynccontextmanager
     async def failing(app: FastAPI) -> AsyncGenerator[None]:
-        # 分别制造生命周期失败，安全说明仍保留不可信异常链
+        """模拟模块启动失败或取消，关闭用例允许正常启动"""
+        # 未知启动错误与任务取消都携带敏感内容
         if phase == 'startup':
             raise RuntimeError(f'{SENSITIVE_TEST_VALUE}-startup')
         if phase == 'cancel':
             raise asyncio.CancelledError(SENSITIVE_TEST_VALUE)
+
+        # 公开配置错误仍可能附带不可公开的异常链
         if phase == 'safe':
             try:
                 raise RuntimeError(SENSITIVE_TEST_VALUE)
@@ -300,15 +335,20 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
     incoming: asyncio.Queue[Message] = asyncio.Queue()
     incoming.put_nowait({'type': 'lifespan.startup'})
     incoming.put_nowait({'type': 'lifespan.shutdown'})
+
+    # 保留框架向 ASGI 调用方发出的消息
     sent: list[Message] = []
 
     async def send(message: Message) -> None:
+        """按发送顺序记录应用发出的生命周期消息"""
         sent.append(message)
 
-    # 经过真实 ASGI lifespan.failed 序列化，不能只验证上下文内抛出的异常
+    # 从 ASGI 入口核对调用方收到的异常类型
     error_type = {'cancel': asyncio.CancelledError, 'safe': SafeValueError}.get(phase, RuntimeError)
     with pytest.raises(error_type) as failure:
         await app({'type': 'lifespan', 'state': {}}, incoming.get, send)
+
+    # 非取消错误保留当前阶段可公开的说明
     if phase != 'cancel':
         expected = {
             'startup': 'Application lifecycle failed',
@@ -317,10 +357,14 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
         }
         assert str(failure.value) == expected[phase]
 
-    # 失败消息不得泄密，已创建资源和模块仍须完整关闭
+    # ASGI 失败事件应指向出错阶段
     failed_type = 'lifespan.shutdown.failed' if phase == 'shutdown' else 'lifespan.startup.failed'
     assert sent[-1]['type'] == failed_type
+
+    # 失败消息和日志均不得泄露敏感内容
     assert SENSITIVE_TEST_VALUE not in str(sent) + ''.join(log_messages)
+
+    # 模块先于基础客户端清理，应用不再持有已释放的资源
     assert module_closed == [True]
     assert resources[0].httpx_client.is_closed and app.state.resources is None
 
@@ -329,6 +373,7 @@ async def test_lifecycle_failures_are_safe_and_close_resources(
 async def test_no_auth_public_api_and_dependency_outage(
     app_factory: AppFactory, integration_settings: Settings
 ) -> None:
+    """默认无认证，Redis 不可用时存活探针仍能响应"""
     # 零认证应用保留公共探针，不要求认证密钥或发送器
     application = await app_factory(JWT_SECRET_KEY=None, AUTH_CODE_SECRET_KEY=None)
     client = application.client
@@ -362,9 +407,12 @@ async def test_no_auth_public_api_and_dependency_outage(
         broken = create_app(settings)
         async with broken.router.lifespan_context(broken):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=broken), base_url='http://test') as failed:
+                # 需要 Redis 的接口失败时，存活探针仍应正常响应
                 assert (await failed.get('/api/users/me')).status_code == 503
                 assert (await failed.get('/api/ping')).json() == 'pong'
                 assert (await failed.get('/api/health/live')).status_code == 200
+
+                # 就绪探针单独报告不可用的依赖
                 ready = await failed.get('/api/health/ready')
                 assert ready.status_code == 503
                 assert ready.json() == {'status': 'not_ready', 'database': 'ok', 'redis': 'unavailable'}

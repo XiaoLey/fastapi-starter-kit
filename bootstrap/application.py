@@ -31,11 +31,13 @@ def create_app(
     """
     settings = settings if settings is not None else load_settings()
 
-    # 模块只解析一次，基础配置不强迫零认证应用提供密钥
+    # 仅在没有提供工厂清单时使用内置认证方式
     if auth_module_factories is None:
         from app.http.auth_methods import builtin_factories
 
         auth_module_factories = builtin_factories()
+
+    # 只构造配置选中的认证模块
     modules = resolve_modules(settings, auth_module_factories)
 
     # 仅在所选模块使用本地 token 时校验签发配置
@@ -44,13 +46,14 @@ def create_app(
         try:
             jwt_settings = JwtSettings.model_validate(settings.model_dump())
         except ValidationError as exc:
+            # 只报告可公开的配置错误，不暴露秘密输入或原始异常链
             errors = [
                 ValidationDetailSc.from_error(error).model_dump(exclude_none=True)
                 for error in exc.errors(include_input=False)
             ]
             raise SafeValueError(f'Invalid local token settings: {errors}') from None
 
-    # 保存装配结果，运行资源留待应用启动时创建
+    # 调试模式开放开发文档，但不向客户端公开异常栈
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
@@ -60,6 +63,8 @@ def create_app(
         redoc_url=None,
         openapi_url='/openapi.json' if settings.APP_DEBUG else None,
     )
+
+    # 保存装配结果，运行资源留待应用启动时创建
     app.state.settings = settings
     app.state.auth_modules = modules
     app.state.jwt_settings = jwt_settings
@@ -70,6 +75,8 @@ def create_app(
     # 公共边界先于路由组装，CORS 置于可控错误输出之外
     exception_provider.register(app)
     middleware_provider.register(app, settings)
+
+    # 装配路由并拒绝冲突的请求入口
     route_provider.boot(app, settings, modules)
 
     return app

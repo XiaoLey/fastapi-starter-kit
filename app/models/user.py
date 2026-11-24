@@ -23,4 +23,5 @@ class UserModel(TableModel):
     is_admin: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
     def is_enabled(self) -> bool:
+        """仅当用户状态为启用且尚未归档时返回 True"""
         return self.state == 'enabled' and not self.is_archived()

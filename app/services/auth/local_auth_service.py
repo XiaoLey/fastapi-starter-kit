@@ -37,6 +37,7 @@ class LocalOptions(BaseModel):
 
     @property
     def registration_identifiers(self) -> frozenset[LocalKind]:
+        """返回可用于首次注册的标识，登录仍须按具体方式校验启用范围"""
         return frozenset(self.password_identifiers) | self.otp_identifiers
 
 
@@ -106,7 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         if codes.AUTH_CODE_SECRET_KEY == settings.JWT_SECRET_KEY:
             raise SafeValueError('Verification code and JWT secrets must differ')
 
-    # 只创建需要的通道，成功后立即纳入当前周期的清理范围
+    # 按联系方式证明需求装配发送资源
     async with AsyncExitStack() as stack:
         sms: SmsSender | None = None
         email: EmailSender | None = None
@@ -117,12 +118,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             if sms_factory is None:
                 raise SafeValueError('Phone registration/login requires sms_sender_factory')
 
-            # 创建失败只报告安全说明，成功后登记关闭
+            # 创建失败只报告安全说明
             try:
                 sms = sms_factory()
             except Exception as exc:
                 log_failure(exc)
                 raise SafeValueError('SMS sender initialization failed') from None
+
+            # 先接管短信资源，后续通道启动失败也可关闭
             stack.push_async_callback(sms.aclose)
 
         # 邮件通道独立按需创建和收尾
@@ -131,19 +134,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             if email_factory is None:
                 raise SafeValueError('Email registration/login requires email_sender_factory')
 
-            # 创建失败只报告安全说明，成功后登记关闭
+            # 创建失败只报告安全说明
             try:
                 email = email_factory()
             except Exception as exc:
                 log_failure(exc)
                 raise SafeValueError('Email sender initialization failed') from None
+
+            # 发布应用资源前接管邮件发送器
             stack.push_async_callback(email.aclose)
 
-        # 资源只属于当前应用的当前启动周期
+        # 所需通道就绪后才发布本轮资源
         app.state.local_auth_resources = LocalResources(options, codes, sms, email)
         try:
             yield
         finally:
+            # 先从应用撤下本轮资源，再关闭发送器
             app.state.local_auth_resources = None
 
 
