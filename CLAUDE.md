@@ -1,5 +1,5 @@
 <!-- agents:profile begin -->
-<!-- agents:language=python modules= -->
+<!-- agents:rules=python -->
 @../.agents/python.md
 <!-- agents:profile end -->
 
